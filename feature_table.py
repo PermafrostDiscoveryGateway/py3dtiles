@@ -117,30 +117,34 @@ class FeatureTableHeader(object):
         jsond = self.to_json()
         json_str = json.dumps(jsond).replace(" ", "")
         n = len(json_str) + 28
-        json_str += ' '*(4 - n % 4)
+      #  json_str += ' '*(4 - n % 4)
+        json_str += ' '*(8 - n % 8)
         return np.fromstring(json_str, dtype=np.uint8)
 
     def to_json(self):
         jsond = {}
 
         # length
-        jsond['POINTS_LENGTH'] = self.points_length
+        if self.points_length > 0:
+            jsond['POINTS_LENGTH'] = self.points_length
 
         # rtc
         if self.rtc:
             jsond['RTC_CENTER'] = self.rtc
 
         # positions
-        offset = {'byteOffset': self.positions_offset}
-        if self.positions == SemanticPoint.POSITION:
-            jsond['POSITION'] = offset
-        elif self.positions == SemanticPoint.POSITION_QUANTIZED:
-            jsond['POSITION_QUANTIZED'] = offset
+        #offset = {'byteOffset': self.positions_offset}
+        #if self.positions == SemanticPoint.POSITION:
+        #    jsond['POSITION'] = offset
+        #elif self.positions == SemanticPoint.POSITION_QUANTIZED:
+        #    jsond['POSITION_QUANTIZED'] = offset
 
         # colors
-        offset = {'byteOffset': self.colors_offset}
-        if self.colors == SemanticPoint.RGB:
-            jsond['RGB'] = offset
+        #offset = {'byteOffset': self.colors_offset}
+        #if self.colors == SemanticPoint.RGB:
+        #    jsond['RGB'] = offset
+
+        jsond['BATCH_LENGTH'] = 0
 
         return jsond
 
@@ -278,7 +282,8 @@ class FeatureTableBody(object):
         arr = self.positions_arr
         if len(self.colors_arr):
             arr = np.concatenate((self.positions_arr, self.colors_arr))
-        return arr
+        #return arr
+        return np.array([], dtype=np.uint8)
 
     @staticmethod
     def from_features(fth, features):
