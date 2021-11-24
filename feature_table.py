@@ -144,7 +144,7 @@ class FeatureTableHeader(object):
         #if self.colors == SemanticPoint.RGB:
         #    jsond['RGB'] = offset
 
-        jsond['BATCH_LENGTH'] = 0
+        jsond['BATCH_LENGTH'] = 89
 
         return jsond
 
