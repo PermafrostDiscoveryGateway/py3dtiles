@@ -30,6 +30,11 @@ class B3dm(Tile):
 
         tb = B3dmBody()
         tb.glTF = gltf
+
+        bt = BatchTable()
+        classArray = ["1","2","1","2","2","2","1","2","2","1","1","2","2","2","2","2","2","2","2","2","2","1","2","1","1","2","2","2","2","2","2","2","1","2","2","2","2","2","2","2","2","1","1","2","2","1","2","2","2","2","2","2","2","2","2","2","2","2","2","2","1","2","2","2","2","1","2","2","2","1","1","1","2","1","2","2","2","2","2","2","2","2","1","2","2","2","1","2","1"]
+        bt.header.add_property_from_array(propertyName="Class", array=classArray)
+
         tb.batch_table = bt
 
         th = B3dmHeader()
@@ -116,11 +121,13 @@ class B3dmHeader(TileHeader):
         self.ft_bin_byte_length = 0
 
         if body.batch_table is not None:
-            bth_arr = body.batch_table.to_array()
-            # btb_arr = body.batch_table.body.to_array()
+            bt_arr = body.batch_table.to_array()
+            self.tile_byte_length += len(bt_arr)
 
-            self.tile_byte_length += len(bth_arr)
+            bth_arr = body.batch_table.header.to_array()
+            btb_arr = body.batch_table.body.to_array()
             self.bt_json_byte_length = len(bth_arr)
+            self.bt_bin_byte_length = len(btb_arr)
 
         # Changes by Lauren below
         #Uncommented out these lines that converts FT to array
