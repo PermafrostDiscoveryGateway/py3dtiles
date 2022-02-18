@@ -190,6 +190,7 @@ def triangulate(polygon, additionalPolygons=[]):
     vect2 = polygon[0][2] - polygon[0][0]
     vectProd = np.cross(vect1, vect2)
     polygon2D = []
+    polygon2D_old = []
     holes = []
     delta = 0
     for p in polygon[:-1]:
@@ -202,18 +203,22 @@ def triangulate(polygon, additionalPolygons=[]):
         # (yz) projection
         for linestring in polygon:
             for point in linestring:
-                polygon2D.extend([point[1], point[2]])
+                polygon2D_old.extend([point[1], point[2]])
     #Lauren changed from: elif(math.fabs(vectProd[1]) > math.fabs(vectProd[2])):
     elif (vectProd.size > 1 and math.fabs(vectProd[1]) > math.fabs(vectProd[2])):
         # (zx) projection
         for linestring in polygon:
             for point in linestring:
-                polygon2D.extend([point[0], point[2]])
+                polygon2D_old.extend([point[0], point[2]])
     else:
         # (xy) projection
         for linestring in polygon:
             for point in linestring:
-                polygon2D.extend([point[0], point[1], point[2]])
+                polygon2D_old.extend([point[0], point[1], point[2]])
+
+    for linestring in polygon:
+        for point in linestring:
+            polygon2D.extend([point[0], point[1], point[2]])
 
     # CSJ changed for xyz points
     # trianglesIdx = earcut(polygon2D, holes, 2)
