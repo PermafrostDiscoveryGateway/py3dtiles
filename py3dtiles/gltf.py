@@ -71,7 +71,7 @@ class GlTF(object):
         return glTF
 
     @staticmethod
-    def from_binary_arrays(arrays, transform, binary=True, batched=True,
+    def from_binary_arrays(arrays, transform=None, binary=True, batched=True,
                            uri=None, textureUri=None):
         """
         Parameters
@@ -100,16 +100,19 @@ class GlTF(object):
         binIds = []
         binUvs = []
         nVertices = []
+        nNormals = []
         bb = []
         batchLength = 0
         for i, geometry in enumerate(arrays):
             binVertices.append(geometry['position'])
             binNormals.append(geometry['normal'])
-            n = round(len(geometry['position']) / 12)
-            nVertices.append(n)
+            nV = round(len(geometry['position']) / 12) # 3 32-bit values/vertex
+            nN = round(len(geometry['normal']) / 12)   # 3 32-bit values/normal
+            nVertices.append(nV)
+            nNormals.append(nN)
             bb.append(geometry['bbox'])
             if batched:
-                binIds.append(np.full(n, i, dtype=np.float32))
+                binIds.append(np.full(nV, i, dtype=np.float32))
             if textured:
                 binUvs.append(geometry['uv'])
 
@@ -131,9 +134,9 @@ class GlTF(object):
                 maxz = max(maxz, box[1][2])
             bb = [[[minx, miny, minz], [maxx, maxy, maxz]]]
 
-        glTF.header = compute_header(binVertices, nVertices, bb, transform,
-                                     textured, batched, batchLength, uri,
-                                     textureUri)
+        glTF.header = compute_header(binVertices, binNormals, nVertices, nNormals, 
+                                    bb, textured, batched, batchLength, uri,
+                                    textureUri, transform)
         glTF.body = np.frombuffer(compute_binary(binVertices, binNormals,
                                   binIds, binUvs), dtype=np.uint8)
 
@@ -148,19 +151,21 @@ def compute_binary(binVertices, binNormals, binIds, binUvs):
     return bv + bn + buv + bid
 
 
-def compute_header(binVertices, nVertices, bb, transform,
-                   textured, batched, batchLength, uri, textureUri):
+def compute_header(binVertices, binNormals, nVertices, nNormals, bb,
+                   textured, batched, batchLength, uri, textureUri, transform=None):
     # Buffer
-    meshNb = len(binVertices)
-    sizeVce = []
-    for i in range(0, meshNb):
-        sizeVce.append(len(binVertices[i]))
+    numberOfMeshes = len(binVertices)
+    sizeVrtces = []
+    sizeNrmls = []
+    for i in range(0, numberOfMeshes):
+        sizeVrtces.append(len(binVertices[i]))
+        sizeNrmls.append(len(binNormals[i]))
 
-    byteLength = 2 * sum(sizeVce)
+    byteLength = sum(sizeVrtces) + sum(sizeNrmls)
     if textured:
-        byteLength += int(round(2 * sum(sizeVce) / 3))
+        byteLength += int(round(2 * sum(sizeVrtces) / 3))
     if batched:
-        byteLength += int(round(sum(sizeVce) / 3))
+        byteLength += int(round(sum(sizeVrtces) / 3))
     buffers = [{
         'byteLength': byteLength
     }]
@@ -169,62 +174,64 @@ def compute_header(binVertices, nVertices, bb, transform,
 
     # Buffer view
     bufferViews = []
-    # vertices
+    # vertex positions
     bufferViews.append({
         'buffer': 0,
-        'byteLength': sum(sizeVce),
+        'byteLength': sum(sizeVrtces),
         'byteOffset': 0,
         'target': 34962
     })
+    # vertex normals
     bufferViews.append({
         'buffer': 0,
-        'byteLength': sum(sizeVce),
-        'byteOffset': sum(sizeVce),
+        'byteLength': sum(sizeNrmls),
+        'byteOffset': sum(sizeVrtces),
         'target': 34962
     })
     if textured:
         bufferViews.append({
             'buffer': 0,
-            'byteLength': int(round(2 * sum(sizeVce) / 3)),
-            'byteOffset': 2 * sum(sizeVce),
+            'byteLength': int(round(2 * sum(sizeVrtces) / 3)),
+            'byteOffset': 2 * sum(sizeVrtces),
             'target': 34962
         })
     if batched:
         bufferViews.append({
             'buffer': 0,
-            'byteLength': int(round(sum(sizeVce) / 3)),
-            'byteOffset': int(round(8 / 3 * sum(sizeVce))) if textured
-            else 2 * sum(sizeVce),
+            'byteLength': int(round(sum(sizeVrtces) / 3)),
+            'byteOffset': int(round(8 / 3 * sum(sizeVrtces))) if textured
+            else 2 * sum(sizeVrtces),
             'target': 34962
         })
 
     # Accessor
     accessors = []
-    for i in range(0, meshNb):
+    for i in range(0, numberOfMeshes):
         # vertices
         accessors.append({
             'bufferView': 0,
-            'byteOffset': sum(sizeVce[0:i]),
+            'byteOffset': sum(sizeVrtces[0:i]),
             'componentType': 5126,
             'count': nVertices[i],
-            'max': [bb[i][0][1], bb[i][0][2], bb[i][0][0]],
-            'min': [bb[i][1][1], bb[i][1][2], bb[i][1][0]],
+            # CSJ changed to XYZ not YZX
+            'max': [bb[i][0][0], bb[i][0][1], bb[i][0][2]],
+            'min': [bb[i][1][0], bb[i][1][1], bb[i][1][2]],
             'type': "VEC3"
         })
         # normals
         accessors.append({
             'bufferView': 1,
-            'byteOffset': sum(sizeVce[0:i]),
+            'byteOffset': sum(sizeNrmls[0:i]),
             'componentType': 5126,
-            'count': nVertices[i],
-            'max': [1, 1, 1],
-            'min': [-1, -1, -1],
+            'count': nNormals[i],
+            #'max': [1, 1, 1],
+            #'min': [-1, -1, -1],
             'type': "VEC3"
         })
         if textured:
             accessors.append({
                 'bufferView': 2,
-                'byteOffset': int(round(2 / 3 * sum(sizeVce[0:i]))),
+                'byteOffset': int(round(2 / 3 * sum(sizeVrtces[0:i]))),
                 'componentType': 5126,
                 'count': sum(nVertices),
                 'max': [1, 1],
@@ -245,7 +252,7 @@ def compute_header(binVertices, nVertices, bb, transform,
     # Meshes
     meshes = []
     nAttributes = 3 if textured else 2
-    for i in range(0, meshNb):
+    for i in range(0, numberOfMeshes):
         meshes.append({
             'primitives': [{
                 'attributes': {
@@ -264,11 +271,16 @@ def compute_header(binVertices, nVertices, bb, transform,
 
     # Nodes
     nodes = []
-    for i in range(0, meshNb):
-        nodes.append({
-            'matrix': [float(e) for e in transform],
-            'mesh': i
-        })
+    for i in range(0, numberOfMeshes):
+        if transform is not None:
+            nodes.append({
+                'matrix': [float(e) for e in transform],
+                'mesh': i
+            })
+        else:
+            nodes.append({
+                'mesh': i
+            })
 
     # Materials
     materials = [{
@@ -285,6 +297,17 @@ def compute_header(binVertices, nVertices, bb, transform,
             "version": "2.0"
         },
         'scene': 0,
+       # 'extensionsUsed': ['CESIUM_RTC'],
+       # 'extensionsRequired': ['CESIUM_RTC'],
+       # 'extensions': {
+       #     'CESIUM_RTC': {
+       #         'center': [
+       #             -762889.9791526495,
+       #             -1335791.8689435967,
+       #             6169085.401505229
+       #         ]
+       #     }
+       # },
         'scenes': [{
             'nodes': [i for i in range(0, len(nodes))]
         }],

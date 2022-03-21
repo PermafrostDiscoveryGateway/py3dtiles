@@ -142,12 +142,20 @@ def parse(wkb):
     # print(length)
     byteorder = struct.unpack('b', wkb[0:1])
     bo = '<' if byteorder[0] else '>'
+
+    # Should be 6 for MultiPolygon
     geomtype = struct.unpack(bo + 'I', wkb[1:5])[0]
-    hasZ = (geomtype == 1006) or (geomtype == 1015)
-    # MultipolygonZ or polyhedralSurface
+    
+    # Is this a MultipolygonZ (WKB, EWKB) or polyhedralSurface?
+    hasZ = (geomtype in [1006, 2147483654]) or (geomtype == 1015)
+
+    # Get the point offset and the point unpack format
     pntOffset = 24 if hasZ else 16
-    pntUnpack = 'ddd' if hasZ else 'dd'
+    pntUnpack = bo + ('ddd' if hasZ else 'dd')
+
+    # Number of geometry building blocks (e.g. number of rings, num of polygons)
     geomNb = struct.unpack(bo + 'I', wkb[5:9])[0]
+
     # print(struct.unpack('b', wkb[9:10])[0])
     # print(struct.unpack('I', wkb[10:14])[0])   # 1003 (Polygon)
     # print(struct.unpack('I', wkb[14:18])[0])   # num lines
@@ -164,7 +172,7 @@ def parse(wkb):
             offset += 4
             line = []
             for k in range(0, pointNb-1):
-                pt = np.array(struct.unpack(bo + pntUnpack, wkb[offset:offset
+                pt = np.array(struct.unpack(pntUnpack, wkb[offset:offset
                               + pntOffset]), dtype=np.float32)
                 offset += pntOffset
                 line.append(pt)
@@ -182,30 +190,39 @@ def triangulate(polygon, additionalPolygons=[]):
     vect2 = polygon[0][2] - polygon[0][0]
     vectProd = np.cross(vect1, vect2)
     polygon2D = []
+    polygon2D_old = []
     holes = []
     delta = 0
     for p in polygon[:-1]:
         holes.append(delta + len(p))
         delta += len(p)
     # triangulation of the polygon projected on planes (xy) (zx) or (yz)
-    if(math.fabs(vectProd[0]) > math.fabs(vectProd[1])
+    #Lauren changed from: if(math.fabs(vectProd[0]) > math.fabs(vectProd[1])
+    if (vectProd.size > 1 and math.fabs(vectProd[0]) > math.fabs(vectProd[1])
        and math.fabs(vectProd[0]) > math.fabs(vectProd[2])):
         # (yz) projection
         for linestring in polygon:
             for point in linestring:
-                polygon2D.extend([point[1], point[2]])
-    elif(math.fabs(vectProd[1]) > math.fabs(vectProd[2])):
+                polygon2D_old.extend([point[1], point[2]])
+    #Lauren changed from: elif(math.fabs(vectProd[1]) > math.fabs(vectProd[2])):
+    elif (vectProd.size > 1 and math.fabs(vectProd[1]) > math.fabs(vectProd[2])):
         # (zx) projection
         for linestring in polygon:
             for point in linestring:
-                polygon2D.extend([point[0], point[2]])
+                polygon2D_old.extend([point[0], point[2]])
     else:
-        # (xy) projextion
+        # (xy) projection
         for linestring in polygon:
             for point in linestring:
-                polygon2D.extend([point[0], point[1]])
+                polygon2D_old.extend([point[0], point[1], point[2]])
 
-    trianglesIdx = earcut(polygon2D, holes, 2)
+    for linestring in polygon:
+        for point in linestring:
+            polygon2D.extend([point[0], point[1], point[2]])
+
+    # CSJ changed for xyz points
+    # trianglesIdx = earcut(polygon2D, holes, 2)
+    trianglesIdx = earcut(polygon2D, holes, 3)
 
     arrays = [[] for _ in range(len(additionalPolygons) + 1)]
     for i in range(0, len(trianglesIdx), 3):
@@ -217,6 +234,10 @@ def triangulate(polygon, additionalPolygons=[]):
         # adding triangles
         crossProduct = np.cross(p1 - p0, p2 - p0)
         invert = np.dot(vectProd, crossProduct) < 0
+
+        #Change by Lauren 3/14/22
+        invert=False
+        
         if invert:
             arrays[0].append([p1, p0, p2])
         else:

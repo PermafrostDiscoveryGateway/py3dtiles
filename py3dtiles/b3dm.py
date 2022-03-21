@@ -6,6 +6,9 @@ from .tile import Tile, TileHeader, TileBody, TileType
 from .gltf import GlTF
 from .batch_table import BatchTable
 
+# 1008 - Lauren - importing FeatureTable
+from .feature_table import FeatureTable
+
 
 class B3dm(Tile):
 
@@ -27,6 +30,14 @@ class B3dm(Tile):
 
         tb = B3dmBody()
         tb.glTF = gltf
+
+        bt = BatchTable()
+        #classArray = ["1","2","1","2","2","2","1","2","2","1","1","2","2","2","2","2","2","2","2","2","2","1","2","1","1","2","2","2","2","2","2","2","1","2","2","2","2","2","2","2","2","1","1","2","2","1","2","2","2","2","2","2","2","2","2","2","2","2","2","2","1","2","2","2","2","1","2","2","2","1","1","1","2","1","2","2","2","2","2","2","2","2","1","2","2","2","1","2","1"]
+        classArray = []
+        for i in range(89):
+            classArray.append("1")
+        bt.header.add_property_from_array(propertyName="Class", array=classArray)
+
         tb.batch_table = bt
 
         th = B3dmHeader()
@@ -105,21 +116,29 @@ class B3dmHeader(TileHeader):
         glTF_arr = body.glTF.to_array()
 
         # sync the tile header with feature table contents
-        self.tile_byte_length = len(glTF_arr) + B3dmHeader.BYTELENGTH
+        self.tile_byte_length = B3dmHeader.BYTELENGTH + len(body.feature_table.to_array()) + len(glTF_arr)
         self.bt_json_byte_length = 0
         self.bt_bin_byte_length = 0
         self.ft_json_byte_length = 0
         self.ft_bin_byte_length = 0
 
         if body.batch_table is not None:
-            bth_arr = body.batch_table.to_array()
-            # btb_arr = body.batch_table.body.to_array()
+            bt_arr = body.batch_table.to_array()
+            self.tile_byte_length += len(bt_arr)
 
-            self.tile_byte_length += len(bth_arr)
+            bth_arr = body.batch_table.header.to_array()
+            btb_arr = body.batch_table.body.to_array()
             self.bt_json_byte_length = len(bth_arr)
+            self.bt_bin_byte_length = len(btb_arr)
 
-        # fth_arr = body.feature_table.header.to_array()
-        # ftb_arr = body.feature_table.body.to_array()
+        # Changes by Lauren below
+        #Uncommented out these lines that converts FT to array
+        fth_arr = body.feature_table.header.to_array()
+        ftb_arr = body.feature_table.body.to_array()
+
+        #Set the byte length headers
+        self.ft_json_byte_length = len(fth_arr)
+        self.ft_bin_byte_length = len(ftb_arr)
 
     @staticmethod
     def from_array(array):
@@ -154,14 +173,23 @@ class B3dmHeader(TileHeader):
 class B3dmBody(TileBody):
     def __init__(self):
         self.batch_table = BatchTable()
-        # self.feature_table = FeatureTable()
+
         self.glTF = GlTF()
+
+        # 10082021 - Lauren - Uncommenting out this line that creates FeatureTable obj
+        self.feature_table = FeatureTable()
+        
 
     def to_array(self):
         # TODO : export feature table
         array = self.glTF.to_array()
+
         if self.batch_table is not None:
             array = np.concatenate((self.batch_table.to_array(), array))
+
+        # Concatenate the Feature Table
+        array = np.concatenate((self.feature_table.to_array(), array))
+
         return array
 
     @staticmethod
