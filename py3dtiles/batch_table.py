@@ -31,8 +31,6 @@ class BatchTableBody(object):
         self.header_length = len(header.to_array())
 
     def to_array(self):
-        print("header length: ")
-        print(self.header_length % 4)
         # header must be 4-byte aligned (refer to batch table documentation)
         body = ' '*(4 - self.header_length % 4)
         # Returns a blank space for now for testing

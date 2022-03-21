@@ -145,6 +145,9 @@ class FeatureTableHeader(object):
         #    jsond['RGB'] = offset
 
         jsond['BATCH_LENGTH'] = 89
+        #jsond['RTC_CENTER'] = [-762889.9,
+        #        -1335791.8,
+        #        6169085.4]
 
         return jsond
 

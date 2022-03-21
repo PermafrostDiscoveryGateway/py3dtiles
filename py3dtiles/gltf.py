@@ -71,7 +71,7 @@ class GlTF(object):
         return glTF
 
     @staticmethod
-    def from_binary_arrays(arrays, transform, binary=True, batched=True,
+    def from_binary_arrays(arrays, transform=None, binary=True, batched=True,
                            uri=None, textureUri=None):
         """
         Parameters
@@ -135,8 +135,8 @@ class GlTF(object):
             bb = [[[minx, miny, minz], [maxx, maxy, maxz]]]
 
         glTF.header = compute_header(binVertices, binNormals, nVertices, nNormals, 
-                                    bb, transform, textured, batched, batchLength, uri,
-                                    textureUri)
+                                    bb, textured, batched, batchLength, uri,
+                                    textureUri, transform)
         glTF.body = np.frombuffer(compute_binary(binVertices, binNormals,
                                   binIds, binUvs), dtype=np.uint8)
 
@@ -151,8 +151,8 @@ def compute_binary(binVertices, binNormals, binIds, binUvs):
     return bv + bn + buv + bid
 
 
-def compute_header(binVertices, binNormals, nVertices, nNormals, bb, transform,
-                   textured, batched, batchLength, uri, textureUri):
+def compute_header(binVertices, binNormals, nVertices, nNormals, bb,
+                   textured, batched, batchLength, uri, textureUri, transform=None):
     # Buffer
     numberOfMeshes = len(binVertices)
     sizeVrtces = []
@@ -272,10 +272,15 @@ def compute_header(binVertices, binNormals, nVertices, nNormals, bb, transform,
     # Nodes
     nodes = []
     for i in range(0, numberOfMeshes):
-        nodes.append({
-            'matrix': [float(e) for e in transform],
-            'mesh': i
-        })
+        if transform is not None:
+            nodes.append({
+                'matrix': [float(e) for e in transform],
+                'mesh': i
+            })
+        else:
+            nodes.append({
+                'mesh': i
+            })
 
     # Materials
     materials = [{
@@ -292,6 +297,17 @@ def compute_header(binVertices, binNormals, nVertices, nNormals, bb, transform,
             "version": "2.0"
         },
         'scene': 0,
+       # 'extensionsUsed': ['CESIUM_RTC'],
+       # 'extensionsRequired': ['CESIUM_RTC'],
+       # 'extensions': {
+       #     'CESIUM_RTC': {
+       #         'center': [
+       #             -762889.9791526495,
+       #             -1335791.8689435967,
+       #             6169085.401505229
+       #         ]
+       #     }
+       # },
         'scenes': [{
             'nodes': [i for i in range(0, len(nodes))]
         }],

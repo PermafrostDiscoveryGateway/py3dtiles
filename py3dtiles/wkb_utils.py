@@ -234,6 +234,10 @@ def triangulate(polygon, additionalPolygons=[]):
         # adding triangles
         crossProduct = np.cross(p1 - p0, p2 - p0)
         invert = np.dot(vectProd, crossProduct) < 0
+
+        #Change by Lauren 3/14/22
+        invert=False
+        
         if invert:
             arrays[0].append([p1, p0, p2])
         else:
