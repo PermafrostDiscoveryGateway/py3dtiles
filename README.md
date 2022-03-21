@@ -19,3 +19,7 @@ Gitlab repository: https://gitlab.com/Oslandia/py3dtiles
 
 Documentation : https://oslandia.gitlab.io/py3dtiles
 
+----
+
+Changes have been made in this fork to better support the Cesium B3DM Batched 3D Models geometry and Feature Tables.
+
