@@ -53,8 +53,8 @@ setup(
     version=find_version('py3dtiles', '__init__.py'),
     description="Python module for 3D tiles format",
     long_description=read('README.rst'),
-    url='https://github.com/Oslandia/py3dtiles',
-    author='dev',
+    url='https://github.com/PermafrostDiscoveryGateway/py3dtiles',
+    author='Oslandia and PermafrostDiscoveryGateway',
     author_email='contact@oslandia.com',
     license='LGPL2 or later',
     classifiers=[
