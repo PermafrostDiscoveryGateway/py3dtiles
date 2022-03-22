@@ -11,7 +11,7 @@ requirements = (
     'cython',
     'triangle',
     'psycopg2-binary',
-    'laspy<2.0.0',
+    #'laspy<2.0.0',
     'numba',
     'psutil',
     'lz4',
@@ -56,7 +56,7 @@ def find_version(*file_paths):
 
 
 setup(
-    name='py3dtiles',
+    name='pdgpy3dtiles',
     version=find_version('py3dtiles', '__init__.py'),
     description="Python module for 3D tiles format",
     long_description=read('README.rst'),
