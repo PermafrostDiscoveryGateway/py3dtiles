@@ -37,6 +37,8 @@ class B3dm(Tile):
         for i in range(89):
             classArray.append("1")
         bt.header.add_property_from_array(propertyName="Class", array=classArray)
+        
+        print("pdg version")
 
         tb.batch_table = bt
 
