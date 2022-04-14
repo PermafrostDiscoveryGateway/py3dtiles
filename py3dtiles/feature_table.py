@@ -112,6 +112,7 @@ class FeatureTableHeader(object):
         # global semantics
         self.points_length = 0
         self.rtc = None
+        self.batch_length = None
 
     def to_array(self):
         jsond = self.to_json()
@@ -144,10 +145,9 @@ class FeatureTableHeader(object):
         #if self.colors == SemanticPoint.RGB:
         #    jsond['RGB'] = offset
 
-        jsond['BATCH_LENGTH'] = 89
-        #jsond['RTC_CENTER'] = [-762889.9,
-        #        -1335791.8,
-        #        6169085.4]
+        if self.batch_length is not None:
+            jsond['BATCH_LENGTH'] = self.batch_length
+
 
         return jsond
 
