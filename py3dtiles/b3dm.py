@@ -113,6 +113,9 @@ class B3dmHeader(TileHeader):
         # extract array
         glTF_arr = body.glTF.to_array()
 
+        # sync the batch table and the feature table
+        body.feature_table.header.batch_length = body.batch_table.get_length()
+
         # sync the tile header with feature table contents
         self.tile_byte_length = B3dmHeader.BYTELENGTH + len(body.feature_table.to_array()) + len(glTF_arr)
         self.bt_json_byte_length = 0

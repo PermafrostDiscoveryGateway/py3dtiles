@@ -55,3 +55,10 @@ class BatchTable(object):
         h_arr = self.header.to_array()
         b_arr = self.body.to_array()
         return np.concatenate((h_arr, b_arr))
+
+    def get_length(self):
+        # Use the id property as the default length, since it should be populated for all features
+        if "id" in self.header.properties.keys():
+            return len(self.header.properties["id"])
+        else:
+            return list(self.header.properties.keys())[0]
