@@ -3,7 +3,7 @@
 import numpy as np
 from enum import Enum
 from abc import ABC, abstractmethod
-
+import pathlib
 
 class Tile(ABC):
 
@@ -23,6 +23,12 @@ class Tile(ABC):
 
     def save_as(self, filename):
         tile_arr = self.to_array()
+
+        # create filepath if doesn't exist
+        filepath = pathlib.Path(filename)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        filepath.touch(exist_ok=True)
+
         with open(filename, 'bw') as f:
             f.write(bytes(tile_arr))
 
