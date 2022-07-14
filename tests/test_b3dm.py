@@ -2,7 +2,6 @@
 
 import unittest
 import numpy as np
-import binascii
 import json
 # np.set_printoptions(formatter={'int':hex})
 
