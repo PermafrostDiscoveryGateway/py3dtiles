@@ -4,9 +4,7 @@ Command line usage
 info
 ~~~~
 
-The info sub-command outputs informations from a 3DTiles file in the .pnts or .b3dm format.
-
-Here is an example on how to retrieve basic information about a tile binary content, in this
+Here is an example on how to retrieve basic information about a tile, in this
 case *pointCloudRGB.pnts*:
 
 .. code-block:: shell
@@ -72,10 +70,10 @@ correctly placed. Usage example:
 
     $ export_tileset -d my_directory -o 10000 10000 0
 
-The database export requires a connexion info string, the name of the table and its
-column that contains the geometry and (optionally) the name of the column that contains
-the object's ID. Usage example:
+The database export requires a user name, a database name, the name of the table
+and its column that contains the geometry and (optionaly) the name of the column
+that contains the object's ID. Usage example:
 
 .. code-block:: shell
 
-    $ py3dtiles export -D "dbame=mydb user=me host=localhost port=5432" -t table -c geometry_column -i id
+    $ export_tileset -D database -t my_city -c geom -i id -u oslandia
