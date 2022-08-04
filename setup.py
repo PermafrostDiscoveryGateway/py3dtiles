@@ -5,18 +5,26 @@ from setuptools import setup, find_packages
 
 here = os.path.abspath(os.path.dirname(__file__))
 
-
 requirements = (
     'numpy',
     'pyproj',
     'cython',
     'triangle',
-    'psycopg2-binary'
+    'psycopg2-binary',
+    'liblas',
+    'laspy',
+    'numba',
+    'pyproj',
+    'psutil',
+    'lz4',
+    'pyzmq'
 )
 
 dev_requirements = (
     'pytest',
     'pytest-cov',
+    'pytest-benchmark',
+    'line_profiler'
 )
 
 doc_requirements = (
@@ -27,8 +35,10 @@ doc_requirements = (
 prod_requirements = (
 )
 
+
 def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
+
 
 def find_version(*file_paths):
     """
@@ -66,10 +76,12 @@ setup(
     packages=find_packages(),
     install_requires=requirements,
     test_suite="tests",
-    scripts=["tools/py3dtiles_info", "tools/export_tileset"],
     extras_require={
         'dev': dev_requirements,
         'prod': prod_requirements,
         'doc': doc_requirements
+    },
+    entry_points={
+        'console_scripts': ['py3dtiles=py3dtiles.command_line:main'],
     }
 )
