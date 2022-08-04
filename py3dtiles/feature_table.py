@@ -118,9 +118,8 @@ class FeatureTableHeader(object):
         jsond = self.to_json()
         json_str = json.dumps(jsond).replace(" ", "")
         n = len(json_str) + 28
-      #  json_str += ' '*(4 - n % 4)
-        json_str += ' '*(8 - n % 8)
-        return np.fromstring(json_str, dtype=np.uint8)
+        json_str += ' '*(4 - n % 4)
+        return np.frombuffer(json_str.encode('utf-8'), dtype=np.uint8)
 
     def to_json(self):
         jsond = {}
