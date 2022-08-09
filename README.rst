@@ -1,3 +1,4 @@
+=========
 py3dtiles
 =========
 
@@ -53,7 +54,8 @@ README content from the original repository is below.
 --------------
 
 
-.. image:: https://secure.travis-ci.org/Oslandia/py3dtiles.png
+.. image:: https://travis-ci.org/Oslandia/py3dtiles.svg?branch=master
+    :target: https://travis-ci.org/Oslandia/py3dtiles
 
 .. image:: https://badge.fury.io/py/py3dtiles.svg
     :target: https://badge.fury.io/py/py3dtiles
