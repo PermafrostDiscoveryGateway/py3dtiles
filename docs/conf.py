@@ -12,12 +12,22 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
+# import os
+# import sys
+# sys.path.insert(0, os.path.abspath('.'))
+
 
 # -- Project information -----------------------------------------------------
 
 project = u'py3dtiles'
 copyright = u'2019, Augustin Trancart, Paul Blottière, Jérémy Gaillard, Ludovic Delauné, Nicolas Saul, Pierre-Éric Pelloux-Prayer, Raphaël Delhome, Vincent Jaillot, Éric Lemoine'
 author = u'Augustin Trancart, Paul Blottière, Jérémy Gaillard, Ludovic Delauné, Nicolas Saul, Pierre-Éric Pelloux-Prayer, Raphaël Delhome, Vincent Jaillot, Éric Lemoine'
+
+# The short X.Y version
+version = u''
+# The full version, including alpha/beta/rc tags
+release = u'1.0.2, 1.0.1, 0.0.9'
+
 
 # -- General configuration ---------------------------------------------------
 
@@ -36,8 +46,8 @@ extensions = [
     'sphinx.ext.coverage',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
+    'sphinx.ext.githubpages',
     'sphinx_rtd_theme',
-    "sphinx_multiversion",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -79,9 +89,7 @@ html_theme = 'sphinx_rtd_theme'
 # further.  For a list of options available for each theme, see the
 # documentation.
 #
-html_theme_options = {
-    'display_version': True
-}
+# html_theme_options = {}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -96,26 +104,8 @@ html_static_path = ['_static']
 # default: ``['localtoc.html', 'relations.html', 'sourcelink.html',
 # 'searchbox.html']``.
 #
-# -- Options for sphinx-multiversion
+# html_sidebars = {}
 
-# Whitelist pattern for tags (set to None to ignore all tags)
-smv_tag_whitelist = r'^.*$'
-
-# Whitelist pattern for branches (set to None to ignore all branches)
-smv_branch_whitelist = r'^master$'
-
-# Whitelist pattern for remotes (set to None to use local branches only)
-# set to upstream because we add this remote for gitlab, see .gitlab-ci.yml
-smv_remote_whitelist = r'^upstream|origin$'
-
-# Pattern for released versions
-smv_released_pattern = r'^tags/.*$'
-
-# Format for versioned output directories inside the build directory
-smv_outputdir_format = '{ref.name}'
-
-# Determines whether remote or local git branches/tags are preferred if their output dirs conflict
-smv_prefer_remote_refs = True
 
 # -- Options for HTMLHelp output ---------------------------------------------
 

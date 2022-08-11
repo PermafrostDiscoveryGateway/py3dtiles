@@ -70,7 +70,7 @@ p3dtiles is a Python tool and library for manipulating `3D Tiles`_.
 
 **CLI Features**
 
-* Convert pointcloud LAS files to a 3D Tiles tileset (tileset.json + pnts files)
+* Convert pointcloud LAS and XYZ files to a 3D Tiles tileset (tileset.json + pnts files)
 * Merge pointcloud 3D Tiles tilesets into one tileset
 * Read pnts and b3dm files and print a summary of their contents
 
@@ -81,6 +81,8 @@ p3dtiles is a Python tool and library for manipulating `3D Tiles`_.
 py3dtiles is distributed under the Apache 2 Licence.
 
 GitHub repository: https://github.com/Oslandia/py3dtiles
+
+Documentation : https://oslandia.github.io/py3dtiles
 
 Docs
 ----
