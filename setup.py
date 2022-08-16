@@ -11,16 +11,15 @@ requirements = (
     'cython',
     'triangle',
     'psycopg2-binary',
-    'liblas',
     'laspy',
     'numba',
-    'pyproj',
     'psutil',
     'lz4',
     'pyzmq'
 )
 
 dev_requirements = (
+    'flake8',
     'pytest',
     'pytest-cov',
     'pytest-benchmark',
@@ -64,10 +63,10 @@ setup(
     author='Oslandia and PermafrostDiscoveryGateway',
     author_email='contact@oslandia.com',
     license='Apache License Version 2.0',
+    python_requires='>=3.5',
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
-        'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
     ],
     packages=find_packages(),
