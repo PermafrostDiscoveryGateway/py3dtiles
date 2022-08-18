@@ -164,7 +164,7 @@ def arrays2tileset(positions, normals, bboxes, transform, ids=None):
 
     # Export b3dm & tileset
     tileset = tree.to_tileset(transform)
-    f = open("tileset.json".format(node.id), 'w')
+    f = open("tileset.json", 'w')
     f.write(json.dumps(tileset))
     print("Creating tiles...")
     nodes = tree.all_nodes()
@@ -313,7 +313,8 @@ def init_parser(subparser, str2bool):
     c_help = 'geometry column name'
     parser.add_argument('-c', metavar='COLUMN', type=str, help=c_help)
 
-    parser.add_argument('-i', metavar='IDCOLUMN', type=str, help=c_help)
+    i_help = 'id column name'
+    parser.add_argument('-i', metavar='IDCOLUMN', type=str, help=i_help)
 
     u_help = 'database user name'
     parser.add_argument('-u', metavar='USER', type=str, help=u_help)
