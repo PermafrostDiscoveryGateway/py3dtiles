@@ -213,9 +213,8 @@ def compute_header(binVertices, binNormals, nVertices, nNormals, bb,
             'byteOffset': sum(sizeVrtces[0:i]),
             'componentType': 5126,
             'count': nVertices[i],
-            # CSJ changed to XYZ not YZX
-            'max': [bb[i][0][0], bb[i][0][1], bb[i][0][2]],
-            'min': [bb[i][1][0], bb[i][1][1], bb[i][1][2]],
+            'min': [bb[i][0][0], bb[i][0][1], bb[i][0][2]],
+            'max': [bb[i][1][0], bb[i][1][1], bb[i][1][2]],
             'type': "VEC3"
         })
         # normals
