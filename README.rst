@@ -64,7 +64,7 @@ README content from the original repository is below.
 py3dtiles
 =========
 
-p3dtiles is a Python tool and library for manipulating `3D Tiles`_.
+py3dtiles is a Python tool and library for manipulating `3D Tiles`_.
 
 .. _3D Tiles: https://github.com/AnalyticalGraphicsInc/3d-tiles
 

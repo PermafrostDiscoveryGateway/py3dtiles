@@ -2,27 +2,28 @@ import numpy as np
 import math
 import traceback
 import struct
-from pickle import dumps as pdumps
+import pickle
+
+from py3dtiles.points.utils import ResponseType
 
 
 def init(files, color_scale=None, srs_in=None, srs_out=None, fraction=100):
     aabb = None
     total_point_count = 0
     pointcloud_file_portions = []
-    avg_min = np.array([0.0, 0.0, 0.0])
 
     for filename in files:
         try:
-            f = open(filename, "r")
+            f = open(filename)
         except Exception as e:
-            print("Error opening {filename}. Skipping.".format(**locals()))
+            print(f"Error opening {filename}. Skipping.")
             print(e)
             continue
 
         count = 0
         seek_values = []
         while True:
-            batch = 10000
+            batch = 10_000
             points = np.zeros((batch, 3))
 
             offset = f.tell()
@@ -36,7 +37,7 @@ def init(files, color_scale=None, srs_in=None, srs_out=None, fraction=100):
             if points.shape[0] == 0:
                 break
 
-            if not count % 1000000:
+            if not count % 1_000_000:
                 seek_values += [offset]
 
             count += points.shape[0]
@@ -54,20 +55,21 @@ def init(files, color_scale=None, srs_in=None, srs_out=None, fraction=100):
         # We need an exact point count
         total_point_count += count * fraction / 100
 
-        _1M = min(count, 1000000)
+        _1M = min(count, 1_000_000)
         steps = math.ceil(count / _1M)
-        assert steps == len(seek_values)
+        if steps != len(seek_values):
+            raise ValueError("the size of seek_values should be equal to steps,"
+                             f"currently steps = {steps} and len(seek_values) = {len(seek_values)}")
         portions = [
             (i * _1M, min(count, (i + 1) * _1M), seek_values[i]) for i in range(steps)
         ]
         for p in portions:
             pointcloud_file_portions += [(filename, p)]
 
-        if srs_out is not None and srs_in is None:
+        if srs_out and not srs_in:
             raise Exception(
-                "'{}' file doesn't contain srs information. Please use the --srs_in option to declare it.".format(
-                    filename
-                )
+                f"'{filename}' file doesn't contain srs information."
+                "Please use the --srs_in option to declare it."
             )
 
     return {
@@ -144,16 +146,15 @@ def run(_id, filename, offset_scale, portion, queue, transformer, verbose):
 
             queue.send_multipart(
                 [
+                    ResponseType.NEW_TASK.value,
                     "".encode("ascii"),
-                    pdumps({"xyz": coords, "rgb": colors}),
+                    pickle.dumps({"xyz": coords, "rgb": colors}),
                     struct.pack(">I", len(coords)),
                 ],
                 copy=False,
             )
 
-        queue.send_multipart([pdumps({"name": _id, "total": 0})])
-        # notify we're idle
-        queue.send_multipart([b""])
+        queue.send_multipart([ResponseType.READ.value, pickle.dumps({"name": _id, "total": 0})])
 
         f.close()
     except Exception as e:

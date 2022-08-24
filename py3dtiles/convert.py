@@ -1,35 +1,41 @@
+import argparse
+import concurrent.futures
+import json
+import multiprocessing
 import os
+import pickle
 import shutil
+import struct
 import sys
 import time
-import multiprocessing
-import numpy as np
-import json
 from collections import namedtuple
-import pickle
+from pathlib import Path, PurePath
+
+import numpy as np
+import psutil
 import zmq
 from pyproj import CRS, Transformer
-import psutil
-import struct
-import concurrent.futures
-import argparse
-from py3dtiles.constants import MIN_POINT_SIZE
-from py3dtiles.utils import SrsInMissingException
-from py3dtiles.points.transformations import rotation_matrix, angle_between_vectors, vector_product, inverse_matrix, scale_matrix, translation_matrix
-from py3dtiles.points.utils import compute_spacing, name_to_filename
-from py3dtiles.points.node import Node
+
 from py3dtiles import TileContentReader
+from py3dtiles.constants import MIN_POINT_SIZE
+from py3dtiles.points.node import Node
 from py3dtiles.points.shared_node_store import SharedNodeStore
-import py3dtiles.points.task.las_reader as las_reader
-import py3dtiles.points.task.xyz_reader as xyz_reader
-import py3dtiles.points.task.node_process as node_process
-import py3dtiles.points.task.pnts_writer as pnts_writer
+from py3dtiles.points.task import las_reader, xyz_reader, node_process, pnts_writer
+from py3dtiles.points.transformations import rotation_matrix, angle_between_vectors, vector_product, inverse_matrix, \
+    scale_matrix, translation_matrix
+from py3dtiles.points.utils import CommandType, ResponseType, compute_spacing, name_to_filename
+from py3dtiles.utils import SrsInMissingException
+
+TOTAL_MEMORY_MB = int(psutil.virtual_memory().total / (1024 * 1024))
+IPC_URI = "ipc:///tmp/py3dtiles1"
+
+OctreeMetadata = namedtuple('OctreeMetadata', ['aabb', 'spacing', 'scale'])
+Reader = namedtuple('Reader', ['input', 'active'])
+NodeProcess = namedtuple('NodeProcess', ['input', 'active', 'inactive'])
+ToPnts = namedtuple('ToPnts', ['input', 'active'])
 
 
-total_memory_MB = int(psutil.virtual_memory().total / (1024 * 1024))
-
-
-def write_tileset(in_folder, out_folder, octree_metadata, offset, scale, rotation_matrix, include_rgb):
+def write_tileset(out_folder, octree_metadata, offset, scale, rotation_matrix, include_rgb):
     # compute tile transform matrix
     if rotation_matrix is None:
         transform = np.identity(4)
@@ -39,28 +45,27 @@ def write_tileset(in_folder, out_folder, octree_metadata, offset, scale, rotatio
     transform = np.dot(translation_matrix(offset), transform)
 
     # build fake points
-    if True:
-        root_node = Node('', octree_metadata.aabb, octree_metadata.spacing * 2)
-        root_node.children = []
-        inv_aabb_size = (1.0 / np.maximum(MIN_POINT_SIZE, octree_metadata.aabb[1] - octree_metadata.aabb[0])).astype(np.float32)
-        for child in ['0', '1', '2', '3', '4', '5', '6', '7']:
-            ondisk_tile = name_to_filename(out_folder, child.encode('ascii'), '.pnts')
-            if os.path.exists(ondisk_tile):
-                tile_content = TileContentReader.read_file(ondisk_tile)
-                fth = tile_content.body.feature_table.header
-                xyz = tile_content.body.feature_table.body.positions_arr.view(np.float32).reshape((fth.points_length, 3))
-                if include_rgb:
-                    rgb = tile_content.body.feature_table.body.colors_arr.reshape((fth.points_length, 3))
-                else:
-                    rgb = np.zeros(xyz.shape, dtype=np.uint8)
+    root_node = Node('', octree_metadata.aabb, octree_metadata.spacing * 2)
+    root_node.children = []
+    inv_aabb_size = (1.0 / np.maximum(MIN_POINT_SIZE, octree_metadata.aabb[1] - octree_metadata.aabb[0])).astype(np.float32)
+    for child in range(8):
+        ondisk_tile = name_to_filename(out_folder, str(child).encode('ascii'), '.pnts')
+        if os.path.exists(ondisk_tile):
+            tile_content = TileContentReader.read_file(ondisk_tile)
+            fth = tile_content.body.feature_table.header
+            xyz = tile_content.body.feature_table.body.positions_arr.view(np.float32).reshape((fth.points_length, 3))
+            if include_rgb:
+                rgb = tile_content.body.feature_table.body.colors_arr.reshape((fth.points_length, 3))
+            else:
+                rgb = np.zeros(xyz.shape, dtype=np.uint8)
 
-                root_node.grid.insert(
-                    octree_metadata.aabb[0].astype(np.float32),
-                    inv_aabb_size,
-                    xyz.copy(),
-                    rgb)
+            root_node.grid.insert(
+                octree_metadata.aabb[0].astype(np.float32),
+                inv_aabb_size,
+                xyz.copy(),
+                rgb)
 
-        pnts_writer.node_to_pnts(''.encode('ascii'), root_node, out_folder, include_rgb)
+    pnts_writer.node_to_pnts(''.encode('ascii'), root_node, out_folder, include_rgb)
 
     executor = concurrent.futures.ProcessPoolExecutor()
     root_tileset = Node.to_tileset(executor, ''.encode('ascii'), octree_metadata.aabb, octree_metadata.spacing, out_folder, scale)
@@ -80,7 +85,8 @@ def write_tileset(in_folder, out_folder, octree_metadata, offset, scale, rotatio
         'root': root_tileset,
     }
 
-    with open('{}/tileset.json'.format(out_folder), 'w') as f:
+    tileset_path = Path(out_folder) / "tileset.json"
+    with tileset_path.open('w') as f:
         f.write(json.dumps(tileset))
 
 
@@ -93,20 +99,19 @@ def make_rotation_matrix(z1, z2):
         vector_product(v0, v1))
 
 
-OctreeMetadata = namedtuple('OctreeMetadata', ['aabb', 'spacing', 'scale'])
-
-
 def zmq_process(activity_graph, srs_out_wkt, srs_in_wkt, node_store, octree_metadata, folder, write_rgb, verbosity):
-    transformer = None
-    if srs_out_wkt is not None:
+    if srs_out_wkt:
         crs_out = CRS(srs_out_wkt)
         crs_in = CRS(srs_in_wkt)
         transformer = Transformer.from_crs(crs_in, crs_out)
+    else:
+        transformer = None
+
     context = zmq.Context()
 
     # Socket to receive messages on
     skt = context.socket(zmq.DEALER)
-    skt.connect('ipc:///tmp/py3dtiles1')
+    skt.connect(IPC_URI)
 
     startup_time = time.time()
     idle_time = 0
@@ -115,7 +120,7 @@ def zmq_process(activity_graph, srs_out_wkt, srs_in_wkt, node_store, octree_meta
         activity = open('activity.{}.csv'.format(os.getpid()), 'w')
 
     # notify we're ready
-    skt.send_multipart([b''])
+    skt.send_multipart([ResponseType.IDLE.value])
 
     while True:
         before = time.time() - startup_time
@@ -125,41 +130,46 @@ def zmq_process(activity_graph, srs_out_wkt, srs_in_wkt, node_store, octree_meta
         after = time.time() - startup_time
 
         idle_time += after - before
-        command = skt.recv_multipart()
-        delta = time.time() - pickle.loads(command[0])
+        message = skt.recv_multipart()
+        delta = time.time() - pickle.loads(message[0])
         if delta > 0.01 and verbosity >= 1:
             print('{} / {} : Delta time: {}'.format(os.getpid(), round(after, 2), round(delta, 3)))
-        command = command[1:]
+        content = message[1:]
+        command = content[0]
 
-        if len(command) == 1:
-            command = pickle.loads(command[0])
+        if command == CommandType.READ_FILE.value:
+            parameters = pickle.loads(content[1])
             command_type = 1
 
-            if command == b'shutdown':
-                # ack
-                break
-
-            _, ext = os.path.splitext(command['filename'])
+            ext = PurePath(parameters['filename']).suffix
             init_reader_fn = las_reader.run if ext in ('.las', '.laz') else xyz_reader.run
             init_reader_fn(
-                command['id'],
-                command['filename'],
-                command['offset_scale'],
-                command['portion'],
+                parameters['id'],
+                parameters['filename'],
+                parameters['offset_scale'],
+                parameters['portion'],
                 skt,
                 transformer,
-                verbosity)
-        elif command[0] == b'pnts':
+                verbosity
+            )
+        elif command == CommandType.WRITE_PNTS.value:
             command_type = 3
-            pnts_writer.run(skt, command[2], command[1], folder, write_rgb)
-            skt.send_multipart([b''])
-        else:
+            pnts_writer.run(skt, content[2], content[1], folder, write_rgb)
+        elif command == CommandType.PROCESS_JOBS.value:
             command_type = 2
-            node_process.run(
-                command,
+            result = node_process.run(
+                content[1:],
                 octree_metadata,
                 skt,
-                verbosity)
+                verbosity
+            )
+        elif command == CommandType.SHUTDOWN.value:
+            break  # ack
+        else:
+            raise NotImplementedError(f'Unknown command {command}')
+
+        # notify we're idle
+        skt.send_multipart([ResponseType.IDLE.value])
 
         if activity_graph:
             print('{before}, {command_type}'.format(**locals()), file=activity)
@@ -175,49 +185,58 @@ def zmq_process(activity_graph, srs_out_wkt, srs_in_wkt, node_store, octree_meta
             round(time.time() - startup_time, 1),
             round(idle_time, 1)))
 
-    skt.send_multipart([b'halted'])
+    skt.send_multipart([ResponseType.HALTED.value])
 
 
 def zmq_send_to_process(idle_clients, socket, message):
-    assert idle_clients
+    if not idle_clients:
+        raise ValueError("idle_clients is empty")
     socket.send_multipart([idle_clients.pop(), pickle.dumps(time.time())] + message)
 
 
 def zmq_send_to_all_process(idle_clients, socket, message):
-    assert idle_clients
+    if not idle_clients:
+        raise ValueError("idle_clients is empty")
     for client in idle_clients:
         socket.send_multipart([client, pickle.dumps(time.time())] + message)
     idle_clients.clear()
 
 
-def is_ancestor(ln, la, name, ancestor):
-    return la <= ln and name[0:la] == ancestor
+def is_ancestor(name, ancestor):
+    return len(ancestor) <= len(name) and name[0:len(ancestor)] == ancestor
 
 
-def is_ancestor_in_list(ln, node_name, d):
+def is_ancestor_in_list(node_name, d):
     for ancestor in d:
-        k_len = len(ancestor)
-        if k_len == 0:
-            return True
-        if is_ancestor(ln, k_len, node_name, ancestor):
+        if not ancestor or is_ancestor(node_name, ancestor):
             return True
     return False
 
 
 def can_pnts_be_written(name, finished_node, input_nodes, active_nodes):
-    ln = len(name)
     return (
-        is_ancestor(ln, len(finished_node), name, finished_node)
-        and not is_ancestor_in_list(ln, name, active_nodes)
-        and not is_ancestor_in_list(ln, name, input_nodes))
+        is_ancestor(name, finished_node)
+        and not is_ancestor_in_list(name, active_nodes)
+        and not is_ancestor_in_list(name, input_nodes))
 
 
-Reader = namedtuple('Reader', ['input', 'active'])
-NodeProcess = namedtuple('NodeProcess', ['input', 'active', 'inactive'])
-ToPnts = namedtuple('ToPnts', ['input', 'active'])
+def add_tasks_to_process(state, name, task, point_count):
+    if point_count <= 0:
+        raise ValueError("point_count should be strictly positive, currently", point_count)
+    tasks_to_process = state.node_process.input
+    if name not in tasks_to_process:
+        tasks_to_process[name] = ([task], point_count)
+    else:
+        tasks, count = tasks_to_process[name]
+        tasks.append(task)
+        tasks_to_process[name] = (tasks, count + point_count)
 
 
-class State():
+def can_queue_more_jobs(idles):
+    return idles
+
+
+class State:
     def __init__(self, pointcloud_file_portions):
         self.reader = Reader(input=pointcloud_file_portions, active=[])
         self.node_process = NodeProcess(input={}, active={}, inactive=[])
@@ -242,87 +261,11 @@ class State():
             ''))
 
 
-def can_queue_more_jobs(idles):
-    return idles
-
-
-def init_parser(subparser, str2bool):
-
-    parser = subparser.add_parser(
-        'convert',
-        help='Convert .las files to a 3dtiles tileset.',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument(
-        'files',
-        nargs='+',
-        help='Filenames to process. The file must use the .las, .laz (lastools must be installed) or .xyz format.')
-    parser.add_argument(
-        '--out',
-        type=str,
-        help='The folder where the resulting tileset will be written.',
-        default='./3dtiles')
-    parser.add_argument(
-        '--overwrite',
-        help='Delete and recreate the ouput folder if it already exists. WARNING: be careful, there will be no confirmation!',
-        default=False,
-        type=str2bool)
-    parser.add_argument(
-        '--jobs',
-        help='The number of parallel jobs to start. Default to the number of cpu.',
-        default=multiprocessing.cpu_count(),
-        type=int)
-    parser.add_argument(
-        '--cache_size',
-        help='Cache size in MB. Default to available memory / 10.',
-        default=int(total_memory_MB / 10),
-        type=int)
-    parser.add_argument(
-        '--srs_out', help='SRS to convert the output with (numeric part of the EPSG code)', type=str)
-    parser.add_argument(
-        '--srs_in', help='Override input SRS (numeric part of the EPSG code)', type=str)
-    parser.add_argument(
-        '--fraction',
-        help='Percentage of the pointcloud to process.',
-        default=100, type=int)
-    parser.add_argument(
-        '--benchmark',
-        help='Print summary at the end of the process', type=str)
-    parser.add_argument(
-        '--rgb',
-        help='Export rgb attributes', type=str2bool, default=True)
-    parser.add_argument(
-        '--graph',
-        help='Produce debug graphes (requires pygal)', type=str2bool, default=False)
-    parser.add_argument(
-        '--color_scale',
-        help='Force color scale', type=float)
-
-
-def main(args):
-    try:
-        return convert(args.files,
-                       outfolder=args.out,
-                       overwrite=args.overwrite,
-                       jobs=args.jobs,
-                       cache_size=args.cache_size,
-                       srs_out=args.srs_out,
-                       srs_in=args.srs_in,
-                       fraction=args.fraction,
-                       benchmark=args.benchmark,
-                       rgb=args.rgb,
-                       graph=args.graph,
-                       color_scale=args.color_scale,
-                       verbose=args.verbose)
-    except SrsInMissingException:
-        print('No SRS information in input files, you should specify it with --srs_in')
-        sys.exit(1)
-
-
 def convert(files,
             outfolder='./3dtiles',
             overwrite=False,
             jobs=multiprocessing.cpu_count(),
-            cache_size=int(total_memory_MB / 10),
+            cache_size=int(TOTAL_MEMORY_MB / 10),
             srs_out=None,
             srs_in=None,
             fraction=100,
@@ -361,30 +304,33 @@ def convert(files,
     :type color_scale: float
 
     :raises SrsInMissingException: if py3dtiles couldn't find srs informations in input files and srs_in is not specified
-
-
     """
 
     # allow str directly if only one input
     files = [files] if isinstance(files, str) else files
 
     # read all input files headers and determine the aabb/spacing
-    _, ext = os.path.splitext(files[0])
-    init_reader_fn = las_reader.init if ext in ('.las', '.laz') else xyz_reader.init
+    extensions = set()
+    for file in files:
+        extensions.add(PurePath(file).suffix)
+    if len(extensions) != 1:
+        raise ValueError("All files should have the same extension, currently there are", extensions)
+    extension = extensions.pop()
+
+    init_reader_fn = las_reader.init if extension in ('.las', '.laz') else xyz_reader.init
     infos = init_reader_fn(files, color_scale=color_scale, srs_in=srs_in, srs_out=srs_out)
 
     avg_min = infos['avg_min']
     rotation_matrix = None
     # srs stuff
-    transformer = None
     srs_out_wkt = None
     srs_in_wkt = None
-    if srs_out is not None:
+    if srs_out:
         crs_out = CRS('epsg:{}'.format(srs_out))
-        if srs_in is not None:
+        if srs_in:
             crs_in = CRS('epsg:{}'.format(srs_in))
-        elif infos['srs_in'] is None:
-            raise SrsInMissingException('No SRS informations in the provided files')
+        elif not infos['srs_in']:
+            raise SrsInMissingException('No SRS information in the provided files')
         else:
             crs_in = CRS(infos['srs_in'])
 
@@ -430,14 +376,13 @@ def convert(files,
 
     original_aabb = root_aabb
 
-    if True:
-        base_spacing = compute_spacing(root_aabb)
-        if base_spacing > 10:
-            root_scale = np.array([0.01, 0.01, 0.01])
-        elif base_spacing > 1:
-            root_scale = np.array([0.1, 0.1, 0.1])
-        else:
-            root_scale = np.array([1, 1, 1])
+    base_spacing = compute_spacing(root_aabb)
+    if base_spacing > 10:
+        root_scale = np.array([0.01, 0.01, 0.01])
+    elif base_spacing > 1:
+        root_scale = np.array([0.1, 0.1, 0.1])
+    else:
+        root_scale = np.array([1, 1, 1])
 
     root_aabb = root_aabb * root_scale
     root_spacing = compute_spacing(root_aabb)
@@ -445,18 +390,19 @@ def convert(files,
     octree_metadata = OctreeMetadata(aabb=root_aabb, spacing=root_spacing, scale=root_scale[0])
 
     # create folder
-    if os.path.isdir(outfolder):
+    out_folder_path = Path(outfolder)
+    if out_folder_path.is_dir():
         if overwrite:
-            shutil.rmtree(outfolder, ignore_errors=True)
+            shutil.rmtree(out_folder_path, ignore_errors=True)
         else:
-            print('Error, folder \'{}\' already exists'.format(outfolder))
+            print(f"Error, folder '{outfolder}' already exists")
             sys.exit(1)
 
-    os.makedirs(outfolder)
-    working_dir = os.path.join(outfolder, 'tmp')
-    os.makedirs(working_dir)
+    out_folder_path.mkdir()
+    working_dir = out_folder_path / "tmp"
+    working_dir.mkdir()
 
-    node_store = SharedNodeStore(working_dir)
+    node_store = SharedNodeStore(str(working_dir))
 
     if verbose >= 1:
         print('Summary:')
@@ -474,19 +420,8 @@ def convert(files,
     if graph:
         progression_log = open('progression.csv', 'w')
 
-    def add_tasks_to_process(state, name, task, point_count):
-        assert point_count > 0
-        tasks_to_process = state.node_process.input
-        if name not in tasks_to_process:
-            tasks_to_process[name] = ([task], point_count)
-        else:
-            tasks, count = tasks_to_process[name]
-            tasks.append(task)
-            tasks_to_process[name] = (tasks, count + point_count)
-
     processed_points = 0
     points_in_progress = 0
-    previous_percent = 0
     points_in_pnts = 0
 
     max_splitting_jobs_count = max(1, jobs // 2)
@@ -495,7 +430,7 @@ def convert(files,
     context = zmq.Context()
 
     zmq_skt = context.socket(zmq.ROUTER)
-    zmq_skt.bind('ipc:///tmp/py3dtiles1')
+    zmq_skt.bind(IPC_URI)
 
     zmq_idle_clients = []
 
@@ -524,79 +459,92 @@ def convert(files,
             # Blocking read but it's fine because either all our child processes are busy
             # or we know that there's something to read (zmq.POLLIN)
             start = time.time()
-            result = zmq_skt.recv_multipart()
+            message = zmq_skt.recv_multipart()
 
-            client_id = result[0]
-            result = result[1:]
+            client_id = message[0]
+            result = message[1:]
+            return_type = result[0]
 
-            if len(result) == 1:
-                if len(result[0]) == 0:
-                    assert client_id not in zmq_idle_clients
-                    zmq_idle_clients += [client_id]
+            if return_type == ResponseType.IDLE.value:
+                assert client_id not in zmq_idle_clients
+                zmq_idle_clients += [client_id]
 
-                    if all_processes_busy:
-                        time_waiting_an_idle_process += time.time() - start
-                    all_processes_busy = False
-                elif result[0] == b'halted':
-                    zmq_processes_killed += 1
-                    all_processes_busy = False
-                else:
-                    result = pickle.loads(result[0])
-                    processed_points += result['total']
-                    points_in_progress -= result['total']
+                if all_processes_busy:
+                    time_waiting_an_idle_process += time.time() - start
+                all_processes_busy = False
 
-                    if 'save' in result and len(result['save']) > 0:
-                        node_store.put(result['name'], result['save'])
+            elif return_type == ResponseType.HALTED.value:
+                zmq_processes_killed += 1
+                all_processes_busy = False
 
-                    if result['name'][0:4] == b'root':
-                        state.reader.active.remove(result['name'])
-                    else:
-                        del state.node_process.active[result['name']]
+            elif return_type == ResponseType.READ.value:
+                content = pickle.loads(result[-1])
+                processed_points += content['total']
+                points_in_progress -= content['total']
 
-                        if len(result['name']) > 0:
-                            state.node_process.inactive.append(result['name'])
+                state.reader.active.remove(content['name'])
 
-                            if not state.reader.input and not state.reader.active:
-                                if state.node_process.active or state.node_process.input:
-                                    finished_node = result['name']
-                                    if not can_pnts_be_written(
-                                            finished_node,
-                                            finished_node,
-                                            state.node_process.input,
-                                            state.node_process.active):
-                                        pass
-                                    else:
-                                        state.node_process.inactive.pop(-1)
-                                        state.to_pnts.input.append(finished_node)
+                at_least_one_job_ended = True
 
-                                        for i in range(len(state.node_process.inactive) - 1, -1, -1):
-                                            candidate = state.node_process.inactive[i]
+            elif return_type == ResponseType.PROCESSED.value:
+                content = pickle.loads(result[-1])
+                processed_points += content['total']
+                points_in_progress -= content['total']
 
-                                            if can_pnts_be_written(
-                                                    candidate, finished_node,
-                                                    state.node_process.input,
-                                                    state.node_process.active):
-                                                state.node_process.inactive.pop(i)
-                                                state.to_pnts.input.append(candidate)
+                del state.node_process.active[content['name']]
 
-                                else:
-                                    for c in state.node_process.inactive:
-                                        state.to_pnts.input.append(c)
-                                    state.node_process.inactive.clear()
+                if content['name']:
+                    node_store.put(content['name'], content['save'])
+                    state.node_process.inactive.append(content['name'])
 
-                    at_least_one_job_ended = True
-            elif result[0] == b'pnts':
+                    if not state.reader.input and not state.reader.active:
+                        if state.node_process.active or state.node_process.input:
+                            finished_node = content['name']
+                            if can_pnts_be_written(
+                                finished_node,
+                                finished_node,
+                                state.node_process.input,
+                                state.node_process.active
+                            ):
+                                state.node_process.inactive.pop(-1)
+                                state.to_pnts.input.append(finished_node)
+
+                                for i in range(len(state.node_process.inactive) - 1, -1, -1):
+                                    candidate = state.node_process.inactive[i]
+
+                                    if can_pnts_be_written(
+                                        candidate, finished_node,
+                                        state.node_process.input,
+                                        state.node_process.active
+                                    ):
+                                        state.node_process.inactive.pop(i)
+                                        state.to_pnts.input.append(candidate)
+
+                        else:
+                            for c in state.node_process.inactive:
+                                state.to_pnts.input.append(c)
+                            state.node_process.inactive.clear()
+
+                at_least_one_job_ended = True
+
+            elif return_type == ResponseType.PNTS_WRITTEN.value:
                 points_in_pnts += struct.unpack('>I', result[1])[0]
                 state.to_pnts.active.remove(result[2])
+
+            elif return_type == ResponseType.NEW_TASK.value:
+                count = struct.unpack('>I', result[3])[0]
+                add_tasks_to_process(state, result[1], result[2], count)
+
             else:
-                count = struct.unpack('>I', result[2])[0]
-                add_tasks_to_process(state, result[0], result[1], count)
+                raise NotImplementedError(f"The command {return_type} is not implemented")
 
         while state.to_pnts.input and can_queue_more_jobs(zmq_idle_clients):
             node_name = state.to_pnts.input.pop()
             datas = node_store.get(node_name)
-            assert len(datas) > 0, '{} has no data??'.format(node_name)
-            zmq_send_to_process(zmq_idle_clients, zmq_skt, [b'pnts', node_name, datas])
+            if not datas:
+                raise ValueError(f'{node_name} has no data')
+
+            zmq_send_to_process(zmq_idle_clients, zmq_skt, [CommandType.WRITE_PNTS.value, node_name, datas])
             node_store.remove(node_name)
             state.to_pnts.active.append(node_name)
 
@@ -627,7 +575,7 @@ def convert(files,
                     idx -= 1
 
                 if job_list:
-                    zmq_send_to_process(zmq_idle_clients, zmq_skt, job_list)
+                    zmq_send_to_process(zmq_idle_clients, zmq_skt, [CommandType.PROCESS_JOBS.value] + job_list)
 
         while (state.reader.input
                and (points_in_progress < 60000000 or not state.reader.active)
@@ -639,7 +587,7 @@ def convert(files,
             file, portion = state.reader.input.pop()
             points_in_progress += portion[1] - portion[0]
 
-            zmq_send_to_process(zmq_idle_clients, zmq_skt, [pickle.dumps({
+            zmq_send_to_process(zmq_idle_clients, zmq_skt, [CommandType.READ_FILE.value, pickle.dumps({
                 'filename': file,
                 'offset_scale': (
                     -avg_min,
@@ -656,25 +604,20 @@ def convert(files,
         # if at this point we have no work in progress => we're done
         if len(zmq_idle_clients) == jobs or zmq_processes_killed == jobs:
             if zmq_processes_killed < 0:
-                zmq_send_to_all_process(zmq_idle_clients, zmq_skt, [pickle.dumps(b'shutdown')])
+                zmq_send_to_all_process(zmq_idle_clients, zmq_skt, [CommandType.SHUTDOWN.value])
                 zmq_processes_killed = 0
             else:
-                assert points_in_pnts == infos['point_count'], '!!! Invalid point count in the written .pnts (expected: {}, was: {})'.format(
-                    infos['point_count'], points_in_pnts)
+                if points_in_pnts != infos['point_count']:
+                    raise ValueError("!!! Invalid point count in the written .pnts"
+                                     + f"(expected: {infos['point_count']}, was: {points_in_pnts})")
                 if verbose >= 1:
                     print('Writing 3dtiles {}'.format(infos['avg_min']))
-                write_tileset(working_dir,
-                              outfolder,
-                              octree_metadata,
-                              avg_min,
-                              root_scale,
-                              rotation_matrix,
-                              rgb)
+                write_tileset(outfolder, octree_metadata, avg_min, root_scale, rotation_matrix, rgb)
                 shutil.rmtree(working_dir)
                 if verbose >= 1:
                     print('Done')
 
-                if benchmark is not None:
+                if benchmark:
                     print('{},{},{},{}'.format(
                         benchmark,
                         ','.join([os.path.basename(f) for f in files]),
@@ -715,9 +658,6 @@ def convert(files,
                 percent = round(100 * processed_points / infos['point_count'], 2)
                 time_left = (100 - percent) * now / (percent + 0.001)
                 print('\r{:>6} % in {} sec [est. time left: {} sec]'.format(percent, round(now), round(time_left)), end='', flush=True)
-                if False and int(percent) != previous_percent:
-                    print('')
-                    previous_percent = int(percent)
 
             if graph:
                 percent = round(100 * processed_points / infos['point_count'], 3)
@@ -735,7 +675,7 @@ def convert(files,
     if graph:
         import pygal
 
-        dateline = pygal.XY(x_label_rotation=25, secondary_range=(0, 100))  # , show_y_guides=False)
+        dateline = pygal.XY(x_label_rotation=25, secondary_range=(0, 100))
         for pid in activities:
             activity = []
             filename = 'activity.{}.csv'.format(pid)
@@ -770,5 +710,73 @@ def convert(files,
     context.destroy()
 
 
-if __name__ == '__main__':
-    main()
+def init_parser(subparser, str2bool):
+
+    parser = subparser.add_parser(
+        'convert',
+        help='Convert .las files to a 3dtiles tileset.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument(
+        'files',
+        nargs='+',
+        help='Filenames to process. The file must use the .las, .laz (lastools must be installed) or .xyz format.')
+    parser.add_argument(
+        '--out',
+        type=str,
+        help='The folder where the resulting tileset will be written.',
+        default='./3dtiles')
+    parser.add_argument(
+        '--overwrite',
+        help='Delete and recreate the ouput folder if it already exists. WARNING: be careful, there will be no confirmation!',
+        default=False,
+        type=str2bool)
+    parser.add_argument(
+        '--jobs',
+        help='The number of parallel jobs to start. Default to the number of cpu.',
+        default=multiprocessing.cpu_count(),
+        type=int)
+    parser.add_argument(
+        '--cache_size',
+        help='Cache size in MB. Default to available memory / 10.',
+        default=int(TOTAL_MEMORY_MB / 10),
+        type=int)
+    parser.add_argument(
+        '--srs_out', help='SRS to convert the output with (numeric part of the EPSG code)', type=str)
+    parser.add_argument(
+        '--srs_in', help='Override input SRS (numeric part of the EPSG code)', type=str)
+    parser.add_argument(
+        '--fraction',
+        help='Percentage of the pointcloud to process.',
+        default=100, type=int)
+    parser.add_argument(
+        '--benchmark',
+        help='Print summary at the end of the process', type=str)
+    parser.add_argument(
+        '--rgb',
+        help='Export rgb attributes', type=str2bool, default=True)
+    parser.add_argument(
+        '--graph',
+        help='Produce debug graphes (requires pygal)', type=str2bool, default=False)
+    parser.add_argument(
+        '--color_scale',
+        help='Force color scale', type=float)
+
+
+def main(args):
+    try:
+        return convert(args.files,
+                       outfolder=args.out,
+                       overwrite=args.overwrite,
+                       jobs=args.jobs,
+                       cache_size=args.cache_size,
+                       srs_out=args.srs_out,
+                       srs_in=args.srs_in,
+                       fraction=args.fraction,
+                       benchmark=args.benchmark,
+                       rgb=args.rgb,
+                       graph=args.graph,
+                       color_scale=args.color_scale,
+                       verbose=args.verbose)
+    except SrsInMissingException:
+        print('No SRS information in input files, you should specify it with --srs_in')
+        sys.exit(1)

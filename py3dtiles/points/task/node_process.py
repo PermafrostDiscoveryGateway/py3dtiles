@@ -1,10 +1,11 @@
 import os
-import time
-import traceback
 import pickle
 import struct
+import time
+import traceback
 
 from py3dtiles.points.node_catalog import NodeCatalog
+from py3dtiles.points.utils import ResponseType
 
 
 def _forward_unassigned_points(node, queue, log_file):
@@ -18,6 +19,7 @@ def _forward_unassigned_points(node, queue, log_file):
                 print('    -> put on queue ({},{})'.format(r[0], r[2]), file=log_file)
             total += r[2]
             queue.send_multipart([
+                ResponseType.NEW_TASK.value,
                 r[0],
                 r[1],
                 struct.pack('>I', r[2])], copy=False, block=False)
@@ -27,7 +29,7 @@ def _forward_unassigned_points(node, queue, log_file):
 
 def _flush(node_catalog, scale, node, queue, max_depth=1, force_forward=False, log_file=None, depth=0):
     if depth >= max_depth:
-        threshold = 0 if force_forward else 10000
+        threshold = 0 if force_forward else 10_000
         if node.get_pending_points_count() > threshold:
             return _forward_unassigned_points(node, queue, log_file)
         else:
@@ -126,14 +128,15 @@ def _process(nodes, octree_metadata, name, raw_datas, queue, begin, log_file):
         print('save on disk {} [{}]'.format(name, time.time() - begin), file=log_file)
 
     # save node state on disk
-    data = b''
     if halt_at_depth > 0:
         data = node_catalog.dump(name, halt_at_depth - 1)
+    else:
+        data = b''
 
     if log_enabled:
         print('saved on disk [{}]'.format(time.time() - begin), file=log_file)
 
-    return (total, data)
+    return total, data
 
 
 def run(work, octree_metadata, queue, verbose):
@@ -158,7 +161,7 @@ def run(work, octree_metadata, queue, verbose):
             result, data = _process(node, octree_metadata, name, filenames, queue, begin, log_file)
             total += result
 
-            queue.send_multipart([pickle.dumps({
+            queue.send_multipart([ResponseType.PROCESSED.value, pickle.dumps({
                 'name': name,
                 'total': result,
                 'save': data,
@@ -170,9 +173,6 @@ def run(work, octree_metadata, queue, verbose):
                 time.time() - begin), file=log_file, flush=True)
             if log_file is not None:
                 log_file.close()
-
-        # notify we're idle
-        queue.send_multipart([b''])
 
         return total
 
