@@ -2,8 +2,6 @@ from abc import ABC, abstractmethod
 from enum import Enum
 
 import numpy as np
-from enum import Enum
-from abc import ABC, abstractmethod
 
 import pathlib
 
