@@ -1,15 +1,15 @@
-# -*- coding: utf-8 -*-
 import struct
+
 import numpy as np
 
-from .tile import Tile, TileHeader, TileBody, TileType
 from .feature_table import FeatureTable
+from .tile_content import TileContent, TileContentHeader, TileContentBody, TileContentType
 
 
-class Pnts(Tile):
+class Pnts(TileContent):
 
     @staticmethod
-    def from_features(pdtype, cdtype, features):
+    def from_features(pd_type, cd_type, features):
         """
         Parameters
         ----------
@@ -20,17 +20,17 @@ class Pnts(Tile):
 
         Returns
         -------
-        tile : Tile
+        tile : TileContent
         """
 
-        ft = FeatureTable.from_features(pdtype, cdtype, features)
+        ft = FeatureTable.from_features(pd_type, cd_type, features)
 
         tb = PntsBody()
         tb.feature_table = ft
 
         th = PntsHeader()
 
-        t = Tile()
+        t = TileContent()
         t.body = tb
         t.header = th
 
@@ -45,11 +45,11 @@ class Pnts(Tile):
 
         Returns
         -------
-        t : Tile
+        t : TileContent
         """
 
         # build tile header
-        h_arr = array[0:PntsHeader.BYTELENGTH]
+        h_arr = array[0:PntsHeader.BYTE_LENGTH]
         h = PntsHeader.from_array(h_arr)
 
         if h.tile_byte_length != len(array):
@@ -57,23 +57,23 @@ class Pnts(Tile):
 
         # build tile body
         b_len = h.ft_json_byte_length + h.ft_bin_byte_length
-        b_arr = array[PntsHeader.BYTELENGTH:PntsHeader.BYTELENGTH+b_len]
+        b_arr = array[PntsHeader.BYTE_LENGTH:PntsHeader.BYTE_LENGTH + b_len]
         b = PntsBody.from_array(h, b_arr)
 
-        # build Tile with header and body
-        t = Tile()
+        # build TileContent with header and body
+        t = TileContent()
         t.header = h
         t.body = b
 
         return t
 
 
-class PntsHeader(TileHeader):
-    BYTELENGTH = 28
+class PntsHeader(TileContentHeader):
+    BYTE_LENGTH = 28
 
     def __init__(self):
-        self.type = TileType.POINTCLOUD
-        self.magic_value = "pnts"
+        self.type = TileContentType.POINT_CLOUD
+        self.magic_value = b"pnts"
         self.version = 1
         self.tile_byte_length = 0
         self.ft_json_byte_length = 0
@@ -82,7 +82,7 @@ class PntsHeader(TileHeader):
         self.bt_bin_byte_length = 0
 
     def to_array(self):
-        header_arr = np.fromstring(self.magic_value, np.uint8)
+        header_arr = np.frombuffer(self.magic_value, np.uint8)
 
         header_arr2 = np.array([self.version,
                                 self.tile_byte_length,
@@ -103,8 +103,8 @@ class PntsHeader(TileHeader):
         ftb_arr = body.feature_table.body.to_array()
 
         # sync the tile header with feature table contents
-        self.tile_byte_length = (len(fth_arr) + len(ftb_arr) +
-                                 PntsHeader.BYTELENGTH)
+        self.tile_byte_length = (len(fth_arr) + len(ftb_arr)
+                                 + PntsHeader.BYTE_LENGTH)
         self.ft_json_byte_length = len(fth_arr)
         self.ft_bin_byte_length = len(ftb_arr)
 
@@ -117,12 +117,12 @@ class PntsHeader(TileHeader):
 
         Returns
         -------
-        h : TileHeader
+        h : TileContentHeader
         """
 
         h = PntsHeader()
 
-        if len(array) != PntsHeader.BYTELENGTH:
+        if len(array) != PntsHeader.BYTE_LENGTH:
             raise RuntimeError("Invalid header length")
 
         h.magic_value = "pnts"
@@ -133,12 +133,12 @@ class PntsHeader(TileHeader):
         h.bt_json_byte_length = struct.unpack("i", array[20:24])[0]
         h.bt_bin_byte_length = struct.unpack("i", array[24:28])[0]
 
-        h.type = TileType.POINTCLOUD
+        h.type = TileContentType.POINT_CLOUD
 
         return h
 
 
-class PntsBody(TileBody):
+class PntsBody(TileContentBody):
     def __init__(self):
         self.feature_table = FeatureTable()
         # TODO : self.batch_table = BatchTable()
@@ -151,13 +151,13 @@ class PntsBody(TileBody):
         """
         Parameters
         ----------
-        th : TileHeader
+        th : TileContentHeader
 
         array : numpy.array
 
         Returns
         -------
-        b : TileBody
+        b : TileContentBody
         """
 
         # build feature table
@@ -173,6 +173,5 @@ class PntsBody(TileBody):
         # build tile body with feature table
         b = PntsBody()
         b.feature_table = ft
-        # b.batch_table = bt
 
         return b

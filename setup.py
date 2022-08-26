@@ -1,34 +1,40 @@
-# -*- coding: utf-8 -*-
 import os
 import re
 from setuptools import setup, find_packages
 
 here = os.path.abspath(os.path.dirname(__file__))
 
-
 requirements = (
-    'numpy',
+    'numpy>=1.20.0,<1.23',
     'pyproj',
     'cython',
     'triangle',
-    'psycopg2-binary'
+    'psycopg2-binary',
+    'laspy>=2.0,<3.0',
+    'numba',
+    'psutil',
+    'lz4',
+    'pyzmq'
 )
 
 dev_requirements = (
+    'flake8',
     'pytest',
     'pytest-cov',
+    'pytest-benchmark',
+    'line_profiler'
 )
 
 doc_requirements = (
     'sphinx',
     'sphinx_rtd_theme',
+    'sphinx-multiversion',
 )
 
-prod_requirements = (
-)
 
 def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
+
 
 def find_version(*file_paths):
     """
@@ -56,20 +62,22 @@ setup(
     url='https://github.com/PermafrostDiscoveryGateway/py3dtiles',
     author='Oslandia and PermafrostDiscoveryGateway',
     author_email='contact@oslandia.com',
-    license='LGPL2 or later',
+    license='Apache License Version 2.0',
+    python_requires='>=3.7',
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
-        'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.7',
     ],
     packages=find_packages(),
     install_requires=requirements,
     test_suite="tests",
-    scripts=["tools/py3dtiles_info", "tools/export_tileset"],
     extras_require={
         'dev': dev_requirements,
-        'prod': prod_requirements,
         'doc': doc_requirements
-    }
+    },
+    entry_points={
+        'console_scripts': ['py3dtiles=py3dtiles.command_line:main'],
+    },
+    zip_safe=False  # zip packaging conflicts with Numba cache (#25)
 )

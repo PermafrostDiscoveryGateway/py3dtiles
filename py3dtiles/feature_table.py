@@ -1,23 +1,21 @@
-# -*- coding: utf-8 -*-
-
 import json
 from enum import Enum
+
 import numpy as np
 
 
-class Feature(object):
-
+class Feature:
     def __init__(self):
         self.positions = {}
         self.colors = {}
 
     def to_array(self):
         pos_arr = np.array([(self.positions['X'], self.positions['Y'],
-                            self.positions['Z'])]).view(np.uint8)[0]
+                             self.positions['Z'])]).view(np.uint8)[0]
 
         if len(self.colors):
             col_arr = np.array([(self.colors['Red'], self.colors['Green'],
-                                self.colors['Blue'])]).view(np.uint8)[0]
+                                 self.colors['Blue'])]).view(np.uint8)[0]
         else:
             col_arr = np.array([])
 
@@ -63,7 +61,7 @@ class Feature(object):
         off = 0
         for d in positions_dtype.names:
             dt = positions_dtype[d]
-            data = np.array(positions[off:off+dt.itemsize]).view(dt)[0]
+            data = np.array(positions[off:off + dt.itemsize]).view(dt)[0]
             off += dt.itemsize
             f.positions[d] = data
 
@@ -73,7 +71,7 @@ class Feature(object):
             off = 0
             for d in colors_dtype.names:
                 dt = colors_dtype[d]
-                data = np.array(colors[off:off+dt.itemsize]).view(dt)[0]
+                data = np.array(colors[off:off + dt.itemsize]).view(dt)[0]
                 off += dt.itemsize
                 f.colors[d] = data
 
@@ -81,7 +79,6 @@ class Feature(object):
 
 
 class SemanticPoint(Enum):
-
     NONE = 0
     POSITION = 1
     POSITION_QUANTIZED = 2
@@ -93,7 +90,7 @@ class SemanticPoint(Enum):
     BATCH_ID = 8
 
 
-class FeatureTableHeader(object):
+class FeatureTableHeader:
 
     def __init__(self):
         # point semantics
@@ -118,9 +115,8 @@ class FeatureTableHeader(object):
         jsond = self.to_json()
         json_str = json.dumps(jsond).replace(" ", "")
         n = len(json_str) + 28
-      #  json_str += ' '*(4 - n % 4)
-        json_str += ' '*(8 - n % 8)
-        return np.fromstring(json_str, dtype=np.uint8)
+        json_str += ' ' * (4 - n % 4)
+        return np.frombuffer(json_str.encode('utf-8'), dtype=np.uint8)
 
     def to_json(self):
         jsond = {}
@@ -152,7 +148,7 @@ class FeatureTableHeader(object):
         return jsond
 
     @staticmethod
-    def from_dtype(positions_dtype, colors_dtype, npoints):
+    def from_dtype(positions_dtype, colors_dtype, nb_points):
         """
         Parameters
         ----------
@@ -168,7 +164,7 @@ class FeatureTableHeader(object):
         """
 
         fth = FeatureTableHeader()
-        fth.points_length = npoints
+        fth.points_length = nb_points
 
         # search positions
         names = positions_dtype.names
@@ -177,12 +173,12 @@ class FeatureTableHeader(object):
             dty = positions_dtype['Y']
             dtz = positions_dtype['Z']
             fth.positions_offset = 0
-            if (dtx == np.float32 and dty == np.float32 and dtz == np.float32):
+            if dtx == np.float32 and dty == np.float32 and dtz == np.float32:
                 fth.positions = SemanticPoint.POSITION
                 fth.positions_dtype = np.dtype([('X', np.float32),
                                                 ('Y', np.float32),
                                                 ('Z', np.float32)])
-            elif (dtx == np.uint16 and dty == np.uint16 and dtz == np.uint16):
+            elif dtx == np.uint16 and dty == np.uint16 and dtz == np.uint16:
                 fth.positions = SemanticPoint.POSITION_QUANTIZED
                 fth.positions_dtype = np.dtype([('X', np.uint16),
                                                 ('Y', np.uint16),
@@ -205,7 +201,7 @@ class FeatureTableHeader(object):
                                                  ('Blue', np.uint8)])
 
                 fth.colors_offset = (fth.positions_offset
-                                     + npoints*fth.positions_dtype.itemsize)
+                                     + nb_points * fth.positions_dtype.itemsize)
         else:
             fth.colors = SemanticPoint.NONE
             fth.colors_dtype = None
@@ -226,7 +222,7 @@ class FeatureTableHeader(object):
         fth : FeatureTableHeader
         """
 
-        jsond = json.loads(array.tostring().decode('utf-8'))
+        jsond = json.loads(array.tobytes().decode('utf-8'))
         fth = FeatureTableHeader()
 
         # search position
@@ -272,7 +268,7 @@ class FeatureTableHeader(object):
         return fth
 
 
-class FeatureTableBody(object):
+class FeatureTableBody:
 
     def __init__(self):
         self.positions_arr = []
@@ -325,41 +321,41 @@ class FeatureTableBody(object):
 
         b = FeatureTableBody()
 
-        npoints = fth.points_length
+        nb_points = fth.points_length
 
         # extract positions
         pos_size = fth.positions_dtype.itemsize
         pos_offset = fth.positions_offset
-        b.positions_arr = array[pos_offset:pos_offset+npoints*pos_size]
+        b.positions_arr = array[pos_offset:pos_offset + nb_points * pos_size]
         b.positions_itemsize = pos_size
 
         # extract colors
         if fth.colors != SemanticPoint.NONE:
             col_size = fth.colors_dtype.itemsize
             col_offset = fth.colors_offset
-            b.colors_arr = array[col_offset:col_offset+col_size*npoints]
+            b.colors_arr = array[col_offset:col_offset + col_size * nb_points]
             b.colors_itemsize = col_size
 
         return b
 
     def positions(self, n):
         itemsize = self.positions_itemsize
-        return self.positions_arr[n*itemsize:(n+1)*itemsize]
+        return self.positions_arr[n * itemsize:(n + 1) * itemsize]
 
     def colors(self, n):
         if len(self.colors_arr):
             itemsize = self.colors_itemsize
-            return self.colors_arr[n*itemsize:(n+1)*itemsize]
+            return self.colors_arr[n * itemsize:(n + 1) * itemsize]
         return []
 
 
-class FeatureTable(object):
+class FeatureTable:
 
     def __init__(self):
         self.header = FeatureTableHeader()
         self.body = FeatureTableBody()
 
-    def npoints(self):
+    def nb_points(self):
         return self.header.points_length
 
     def to_array(self):
@@ -372,7 +368,7 @@ class FeatureTable(object):
         """
         Parameters
         ----------
-        th : TileHeader
+        th : TileContentHeader
 
         array : numpy.array
 
@@ -388,7 +384,7 @@ class FeatureTable(object):
 
         # build feature table body
         ftb_len = th.ft_bin_byte_length
-        ftb_arr = array[fth_len:fth_len+ftb_len]
+        ftb_arr = array[fth_len:fth_len + ftb_len]
         ftb = FeatureTableBody.from_array(fth, ftb_arr)
 
         # build feature table

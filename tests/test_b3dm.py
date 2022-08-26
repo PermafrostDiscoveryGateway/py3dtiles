@@ -1,17 +1,15 @@
-# -*- coding: utf-8 -*-
-
 import unittest
 import numpy as np
 import json
 # np.set_printoptions(formatter={'int':hex})
 
-from py3dtiles import TileReader, Tile, Feature, B3dm, GlTF, TriangleSoup
+from py3dtiles import TileContentReader, B3dm, GlTF, TriangleSoup
 
 
-class TestTileReader(unittest.TestCase):
+class TestTileContentReader(unittest.TestCase):
 
     def test_read(self):
-        tile = TileReader().read_file('tests/dragon_low.b3dm')
+        tile = TileContentReader().read_file('tests/dragon_low.b3dm')
 
         self.assertEqual(tile.header.version, 1.0)
         self.assertEqual(tile.header.tile_byte_length, 47246)
@@ -25,14 +23,14 @@ class TestTileReader(unittest.TestCase):
         self.assertDictEqual(gltf_header, tile.body.glTF.header)
 
 
-class TestTileBuilder(unittest.TestCase):
+class TestTileContentBuilder(unittest.TestCase):
 
     def test_build(self):
         with open('tests/building.wkb', 'rb') as f:
             wkb = f.read()
         ts = TriangleSoup.from_wkb_multipolygon(wkb)
-        positions = ts.getPositionArray()
-        normals = ts.getNormalArray()
+        positions = ts.get_position_array()
+        normals = ts.get_normal_array()
         box = [[-8.74748499994166, -7.35523200035095, -2.05385796777344],
                [8.8036420000717, 7.29930999968201, 2.05386103222656]]
         arrays = [{
@@ -52,7 +50,7 @@ class TestTileBuilder(unittest.TestCase):
         t = B3dm.from_glTF(glTF)
 
         # get an array
-        tile_arr = t.to_array()
+        t.to_array()
         self.assertEqual(t.header.version, 1.0)
         self.assertEqual(t.header.tile_byte_length, 2952)
         self.assertEqual(t.header.ft_json_byte_length, 0)
@@ -62,6 +60,7 @@ class TestTileBuilder(unittest.TestCase):
 
         # t.save_as("/tmp/py3dtiles_test_build_1.b3dm")
 
+
 class TestTexturedTileBuilder(unittest.TestCase):
 
     def test_build(self):
@@ -70,9 +69,9 @@ class TestTexturedTileBuilder(unittest.TestCase):
         with open('tests/squareUV.wkb', 'rb') as f:
             wkbuv = f.read()
         ts = TriangleSoup.from_wkb_multipolygon(wkb, [wkbuv])
-        positions = ts.getPositionArray()
-        normals = ts.getNormalArray()
-        uvs = ts.getDataArray(0)
+        positions = ts.get_position_array()
+        normals = ts.get_normal_array()
+        uvs = ts.get_data_array(0)
         box = [[0, 0, 0],
                [10, 10, 0]]
         arrays = [{
@@ -88,11 +87,11 @@ class TestTexturedTileBuilder(unittest.TestCase):
             [0, 0, 1, 0],
             [0, 0, 0, 1]], dtype=float)
         transform = transform.flatten('F')
-        glTF = GlTF.from_binary_arrays(arrays, transform, textureUri='squaretexture.jpg')
+        glTF = GlTF.from_binary_arrays(arrays, transform, texture_uri='squaretexture.jpg')
         t = B3dm.from_glTF(glTF)
 
         # get an array
-        tile_arr = t.to_array()
+        t.to_array()
         self.assertEqual(t.header.version, 1.0)
         self.assertEqual(t.header.tile_byte_length, 1556)
         self.assertEqual(t.header.ft_json_byte_length, 0)

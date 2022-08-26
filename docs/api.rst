@@ -9,9 +9,9 @@ Generic Tile
 The py3dtiles module provides some classes to fit into the
 specification:
 
-- *TileContent* with a header *TileHeader* and a body *TileBody*
-- *TileHeader* represents the metadata of the tile (magic value, version, ...)
-- *TileBody* contains varying semantic and geometric data depending on the the tile's type
+- *TileContent* with a header *TileContentHeader* and a body *TileContentBody*
+- *TileContentHeader* represents the metadata of the tile (magic value, version, ...)
+- *TileContentBody* contains varying semantic and geometric data depending on the the tile's type
 
 Moreover, a utility class *TileContentReader* is available to read a tile
 file as well as a simple command line tool to retrieve basic information
@@ -33,8 +33,7 @@ In the current implementation, the *Pnts* class only contains a *FeatureTable*
 
 .. code-block:: python
 
-    >>> from py3dtiles import TileContentReader
-    >>> from py3dtiles import Pnts
+    >>> from py3dtiles import Pnts, TileContentReader
     >>>
     >>> filename = 'tests/pointCloudRGB.pnts'
     >>>
@@ -43,12 +42,12 @@ In the current implementation, the *Pnts* class only contains a *FeatureTable*
     >>>
     >>> # tile_content is an instance of the TileContent class
     >>> tile_content
-    <py3dtiles.tile.TileContent>
+    <py3dtiles.tile_content.TileContent>
     >>>
     >>> # extract information about the tile_content header
     >>> th = tile_content.header
     >>> th
-    <py3dtiles.tile.TileHeader>
+    <py3dtiles.tile_content.TileContentHeader>
     >>> th.magic_value
     'pnts'
     >>> th.tile_byte_length
@@ -80,7 +79,7 @@ corresponding data type.
 
 .. code-block:: python
 
-    >>> from py3dtiles import Feature
+    >>> from py3dtiles import Feature, Pnts
     >>> import numpy as np
     >>>
     >>> # create the numpy dtype for positions with 32-bit floating point numbers
@@ -117,8 +116,7 @@ https://github.com/AnalyticalGraphicsInc/3d-tiles/tree/master/TileFormats/Batche
 
 .. code-block:: python
 
-    >>> from py3dtiles import TileContentReader
-    >>> from py3dtiles import B3dm
+    >>> from py3dtiles import B3dm, TileContentReader
     >>>
     >>> filename = 'tests/dragon_low.b3dm'
     >>>
@@ -127,10 +125,10 @@ https://github.com/AnalyticalGraphicsInc/3d-tiles/tree/master/TileFormats/Batche
     >>>
     >>> # tile_content is an instance of the TileContent class
     >>> tile_content
-    <py3dtiles.tile.TileContent>
+    <py3dtiles.tile_content.TileContent>
     >>>
     >>> # extract information about the tile header
-    >>> th = tile.header
+    >>> th = tile_content.header
     >>> th
     <py3dtiles.b3dm.B3dmHeader>
     >>> th.magic_value
@@ -155,7 +153,7 @@ file containing polyhedralsurfaces or multipolygons.
 .. code-block:: python
 
     >>> import numpy as np
-    >>> from py3dtiles import GlTF, TriangleSoup
+    >>> from py3dtiles import B3dm, GlTF, TriangleSoup
     >>>
     >>> # load a wkb file
     >>> wkb = open('tests/building.wkb', 'rb').read()
@@ -183,7 +181,7 @@ file containing polyhedralsurfaces or multipolygons.
     >>> gltf = GlTF.from_binary_arrays([geometry], transform)
     >>>
     >>> # create a b3dm tile_content directly from the glTF.
-    >>> t = B3dm.from_glTF(glTF)
+    >>> t = B3dm.from_glTF(gltf)
     >>>
     >>> # to save our tile as a .b3dm file
     >>> t.save_as("mymodel.b3dm")

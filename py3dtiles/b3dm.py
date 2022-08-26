@@ -1,8 +1,7 @@
-# -*- coding: utf-8 -*-
 import struct
 import numpy as np
 
-from .tile import Tile, TileHeader, TileBody, TileType
+from .tile_content import TileContent, TileContentHeader, TileContentBody, TileContentType
 from .gltf import GlTF
 from .batch_table import BatchTable
 
@@ -10,7 +9,7 @@ from .batch_table import BatchTable
 from .feature_table import FeatureTable
 
 
-class B3dm(Tile):
+class B3dm(TileContent):
 
     @staticmethod
     def from_glTF(gltf, bt=None):
@@ -25,7 +24,7 @@ class B3dm(Tile):
 
         Returns
         -------
-        tile : Tile
+        tile : TileContent
         """
 
         tb = B3dmBody()
@@ -41,7 +40,7 @@ class B3dm(Tile):
         th = B3dmHeader()
         th.sync(tb)
 
-        t = Tile()
+        t = TileContent()
         t.body = tb
         t.header = th
 
@@ -56,7 +55,7 @@ class B3dm(Tile):
 
         Returns
         -------
-        t : Tile
+        t : TileContent
         """
 
         # build tile header
@@ -71,20 +70,20 @@ class B3dm(Tile):
                  - B3dmHeader.BYTELENGTH])
         b = B3dmBody.from_array(h, b_arr)
 
-        # build Tile with header and body
-        t = Tile()
+        # build TileContent with header and body
+        t = TileContent()
         t.header = h
         t.body = b
 
         return t
 
 
-class B3dmHeader(TileHeader):
+class B3dmHeader(TileContentHeader):
     BYTELENGTH = 28
 
     def __init__(self):
-        self.type = TileType.BATCHED3DMODEL
-        self.magic_value = "b3dm"
+        self.type = TileContentType.BATCHED_3D_MODEL
+        self.magic_value = b"b3dm"
         self.version = 1
         self.tile_byte_length = 0
         self.ft_json_byte_length = 0
@@ -94,7 +93,7 @@ class B3dmHeader(TileHeader):
         self.bt_length = 0  # number of models in the batch
 
     def to_array(self):
-        header_arr = np.fromstring(self.magic_value, np.uint8)
+        header_arr = np.frombuffer(self.magic_value, np.uint8)
 
         header_arr2 = np.array([self.version,
                                 self.tile_byte_length,
@@ -150,7 +149,7 @@ class B3dmHeader(TileHeader):
 
         Returns
         -------
-        h : TileHeader
+        h : TileContentHeader
         """
 
         h = B3dmHeader()
@@ -166,15 +165,14 @@ class B3dmHeader(TileHeader):
         h.bt_json_byte_length = struct.unpack("i", array[20:24])[0]
         h.bt_bin_byte_length = struct.unpack("i", array[24:28])[0]
 
-        h.type = TileType.BATCHED3DMODEL
+        h.type = TileContentType.BATCHED_3D_MODEL
 
         return h
 
 
-class B3dmBody(TileBody):
+class B3dmBody(TileContentBody):
     def __init__(self):
         self.batch_table = BatchTable()
-
         self.glTF = GlTF()
 
         # 10082021 - Lauren - Uncommenting out this line that creates FeatureTable obj
@@ -198,13 +196,13 @@ class B3dmBody(TileBody):
         """
         Parameters
         ----------
-        th : TileHeader
+        th : TileContentHeader
 
         glTF : GlTF
 
         Returns
         -------
-        b : TileBody
+        b : TileContentBody
         """
 
         # build tile body
@@ -218,35 +216,29 @@ class B3dmBody(TileBody):
         """
         Parameters
         ----------
-        th : TileHeader
+        th : TileContentHeader
 
         array : numpy.array
 
         Returns
         -------
-        b : TileBody
+        b : TileContentBody
         """
 
         # build feature table
         ft_len = th.ft_json_byte_length + th.ft_bin_byte_length
-        # ft_arr = array[0:ft_len]
-        # ft = FeatureTable.from_array(th, ft_arr)
 
         # build batch table
         bt_len = th.bt_json_byte_length + th.bt_bin_byte_length
-        # bt_arr = array[ft_len:ft_len+bt_len]
-        # bt = BatchTable.from_array(th, bt_arr)
 
         # build glTF
         glTF_len = (th.tile_byte_length - ft_len - bt_len
                     - B3dmHeader.BYTELENGTH)
-        glTF_arr = array[ft_len+bt_len:ft_len+bt_len+glTF_len]
+        glTF_arr = array[ft_len + bt_len:ft_len + bt_len + glTF_len]
         glTF = GlTF.from_array(glTF_arr)
 
         # build tile body with feature table
         b = B3dmBody()
-        # b.feature_table = ft
-        # b.batch_table = bt
         b.glTF = glTF
 
         return b
