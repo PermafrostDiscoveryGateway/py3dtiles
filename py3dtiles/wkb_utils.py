@@ -218,31 +218,31 @@ def triangulate(polygon, additional_polygons=None):
         additional_polygons = []
 
     polygon_2d = []
-    polygon_2d_old = []
+    # polygon_2d_old = []
     holes = []
     delta = 0
     for p in polygon[:-1]:
         holes.append(delta + len(p))
         delta += len(p)
-    # triangulation of the polygon projected on planes (xy) (zx) or (yz)
-    # Lauren changed from: if(math.fabs(vect_prod[0]) > math.fabs(vect_prod[1])
-    if (vect_prod.size > 1 and math.fabs(vect_prod[0]) > math.fabs(vect_prod[1])
-       and math.fabs(vect_prod[0]) > math.fabs(vect_prod[2])):
-        # (yz) projection
-        for linestring in polygon:
-            for point in linestring:
-                polygon_2d_old.extend([point[1], point[2]])
-    # Lauren changed from: elif(math.fabs(vect_prod[1]) > math.fabs(vect_prod[2])):
-    elif (vect_prod.size > 1 and math.fabs(vect_prod[1]) > math.fabs(vect_prod[2])):
-        # (zx) projection
-        for linestring in polygon:
-            for point in linestring:
-                polygon_2d_old.extend([point[0], point[2]])
-    else:
-        # (xy) projection
-        for linestring in polygon:
-            for point in linestring:
-                polygon_2d_old.extend([point[0], point[1], point[2]])
+    # # triangulation of the polygon projected on planes (xy) (zx) or (yz)
+    # # Lauren changed from: if(math.fabs(vect_prod[0]) > math.fabs(vect_prod[1])
+    # if (vect_prod.size > 1 and math.fabs(vect_prod[0]) > math.fabs(vect_prod[1])
+    #    and math.fabs(vect_prod[0]) > math.fabs(vect_prod[2])):
+    #     # (yz) projection
+    #     for linestring in polygon:
+    #         for point in linestring:
+    #             polygon_2d_old.extend([point[1], point[2]])
+    # # Lauren changed from: elif(math.fabs(vect_prod[1]) > math.fabs(vect_prod[2])):
+    # elif (vect_prod.size > 1 and math.fabs(vect_prod[1]) > math.fabs(vect_prod[2])):
+    #     # (zx) projection
+    #     for linestring in polygon:
+    #         for point in linestring:
+    #             polygon_2d_old.extend([point[0], point[2]])
+    # else:
+    #     # (xy) projection
+    #     for linestring in polygon:
+    #         for point in linestring:
+    #             polygon_2d_old.extend([point[0], point[1], point[2]])
 
     for linestring in polygon:
         for point in linestring:
