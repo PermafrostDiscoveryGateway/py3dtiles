@@ -40,13 +40,14 @@ From the directory that contains this repo:
 git checkout gitlab-oslandia
 git remote add gitlab https://gitlab.com/Oslandia/py3dtiles.git
 git pull gitlab
-git push
+git push origin
 ```
 
 When ready to update our version:
 ```
-git checkout main
+git checkout develop
 git merge gitlab-oslandia
+git push
 ```
 
 README content from the original repository is below.
