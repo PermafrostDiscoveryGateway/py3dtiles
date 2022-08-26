@@ -1,12 +1,13 @@
-# -*- coding: utf-8 -*-
+from abc import ABC, abstractmethod
+from enum import Enum
 
 import numpy as np
 from enum import Enum
 from abc import ABC, abstractmethod
+
 import pathlib
 
 class TileContent(ABC):
-
     def __init__(self):
         self.header = None
         self.body = None
@@ -36,15 +37,13 @@ class TileContent(ABC):
         """
         Allow to synchronize headers with contents.
         """
-
         self.header.sync(self.body)
 
 
 class TileContentType(Enum):
-
-    UNKNWON = 0
-    POINTCLOUD = 1
-    BATCHED3DMODEL = 2
+    UNKNOWN = 0
+    POINT_CLOUD = 1
+    BATCHED_3D_MODEL = 2
 
 
 class TileContentHeader(ABC):
@@ -61,7 +60,7 @@ class TileContentHeader(ABC):
         pass
 
 
-class TileContentBody(object):
+class TileContentBody:
     @abstractmethod
     def to_array(self):
         pass

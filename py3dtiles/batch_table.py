@@ -1,16 +1,14 @@
-# -*- coding: utf-8 -*-
-
 import numpy as np
 import json
 
 
-class BatchTableHeader(object):
+class BatchTableHeader:
 
     def __init__(self):
         self.properties = {}
 
-    def add_property_from_array(self, propertyName, array):
-        self.properties[propertyName] = array
+    def add_property_from_array(self, property_name, array):
+        self.properties[property_name] = array
 
     def to_array(self):
         # convert dict to json string
@@ -21,7 +19,7 @@ class BatchTableHeader(object):
         return np.fromstring(bt_json, dtype=np.uint8)
 
 
-class BatchTableBody(object):
+class BatchTableBody:
 
     def __init__(self):
         self.properties = {}
@@ -37,7 +35,7 @@ class BatchTableBody(object):
         return np.fromstring(body, dtype=np.uint8)
 
 
-class BatchTable(object):
+class BatchTable:
     """
     Only the JSON header has been implemented for now. According to the batch
     table documentation, the binary body is useful for storing long arrays of
