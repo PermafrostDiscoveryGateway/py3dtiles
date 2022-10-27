@@ -5,7 +5,7 @@ import numpy as np
 
 import pathlib
 
-class TileContent(ABC):
+class TileContent:
     def __init__(self):
         self.header = None
         self.body = None

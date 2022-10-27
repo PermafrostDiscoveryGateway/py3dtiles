@@ -1,6 +1,9 @@
 import os
-from pytest import approx, raises, fixture
+from pathlib import Path
 import shutil
+from unittest.mock import patch
+
+from pytest import approx, fixture, raises
 
 from py3dtiles import convert_to_ecef
 from py3dtiles.convert import convert, SrsInMissingException
@@ -67,3 +70,41 @@ def test_convert_simple_xyz(tmp_dir):
             jobs=1)
     assert os.path.exists(os.path.join(tmp_dir, 'tileset.json'))
     assert os.path.exists(os.path.join(tmp_dir, 'r.pnts'))
+
+
+def test_convert_xyz_exception_in_run(tmp_dir):
+    with patch('py3dtiles.points.task.xyz_reader.run') as mock_run:
+        with raises(Exception, match="An exception occurred in a worker: Exception in run"):
+            mock_run.side_effect = Exception('Exception in run')
+            convert(os.path.join(fixtures_dir, 'simple.xyz'),
+                    outfolder=tmp_dir,
+                    srs_in='3857',
+                    srs_out='4978')
+
+
+def test_convert_las_exception_in_run(tmp_dir):
+    with patch('py3dtiles.points.task.las_reader.run') as mock_run:
+        with raises(Exception, match="An exception occurred in a worker: Exception in run"):
+            mock_run.side_effect = Exception('Exception in run')
+            convert(os.path.join(fixtures_dir, 'with_srs.las'),
+                    outfolder=tmp_dir,
+                    srs_in='3857',
+                    srs_out='4978')
+
+
+def test_convert_export_folder_already_exists(tmp_dir):
+    Path(tmp_dir).mkdir()
+    assert not os.path.exists(os.path.join(tmp_dir, 'tileset.json'))
+
+    with raises(FileExistsError, match=f"Folder '{tmp_dir}' already exists"):
+        convert(os.path.join(fixtures_dir, 'with_srs.las'),
+                outfolder=tmp_dir,
+                srs_out='4978',
+                jobs=1)
+
+    convert(os.path.join(fixtures_dir, 'with_srs.las'),
+            outfolder=tmp_dir,
+            overwrite=True,
+            srs_out='4978',
+            jobs=1)
+    assert os.path.exists(os.path.join(tmp_dir, 'tileset.json'))

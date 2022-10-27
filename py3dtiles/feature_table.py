@@ -1,5 +1,5 @@
-import json
 from enum import Enum
+import json
 
 import numpy as np
 
@@ -115,7 +115,8 @@ class FeatureTableHeader:
         jsond = self.to_json()
         json_str = json.dumps(jsond).replace(" ", "")
         n = len(json_str) + 28
-        json_str += ' ' * (4 - n % 4)
+        if n % 8 != 0:
+            json_str += ' ' * (8 - n % 8)
         return np.frombuffer(json_str.encode('utf-8'), dtype=np.uint8)
 
     def to_json(self):
@@ -281,8 +282,15 @@ class FeatureTableBody:
         arr = self.positions_arr
         if len(self.colors_arr):
             arr = np.concatenate((self.positions_arr, self.colors_arr))
-        #return arr
-        return np.array([], dtype=np.uint8)
+
+        if len(arr) % 8 != 0:
+            padding_str = ' ' * (8 - len(arr) % 8)
+            arr = np.concatenate((
+                arr,
+                np.frombuffer(padding_str.encode('utf-8'), dtype=np.uint8)
+            ))
+
+        return np.array(arr, dtype=np.uint8)
 
     @staticmethod
     def from_features(fth, features):
