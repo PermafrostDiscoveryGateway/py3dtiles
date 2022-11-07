@@ -2,7 +2,7 @@ import argparse
 from collections import namedtuple
 import concurrent.futures
 import json
-import multiprocessing
+from multiprocessing import cpu_count, Process
 import os
 from pathlib import Path, PurePath
 import pickle
@@ -31,7 +31,7 @@ from py3dtiles.utils import SrsInMissingException
 
 TOTAL_MEMORY_MB = int(psutil.virtual_memory().total / (1024 * 1024))
 DEFAULT_CACHE_SIZE = int(TOTAL_MEMORY_MB / 10)
-CPU_COUNT = multiprocessing.cpu_count()
+CPU_COUNT = cpu_count()
 
 # IPC protocol is not supported on Windows
 if os.name == 'nt':
@@ -51,17 +51,12 @@ def make_rotation_matrix(z1, z2):
         vector_product(v0, v1))
 
 
-# Worker
-def zmq_process(*args):
-    process = Worker(*args)
-    process.run()
-
-
-class Worker:
+class Worker(Process):
     """
     This class waits from jobs commands from the Zmq socket.
     """
     def __init__(self, activity_graph, transformer, octree_metadata, folder, write_rgb, verbosity, uri):
+        super().__init__()
         self.activity_graph = activity_graph
         self.transformer = transformer
         self.octree_metadata = octree_metadata
@@ -72,9 +67,11 @@ class Worker:
 
         # Socket to receive messages on
         self.context = zmq.Context()
-        self.skt = self.context.socket(zmq.DEALER)
+        self.skt = None
 
     def run(self):
+        self.skt = self.context.socket(zmq.DEALER)
+
         self.skt.connect(self.uri)
 
         startup_time = time.time()
@@ -189,7 +186,7 @@ class ZmqManager:
         self.uri = self.socket.getsockopt(zmq.LAST_ENDPOINT)
 
         self.processes = [
-            multiprocessing.Process(target=zmq_process, args=process_args + (self.uri,))
+            Worker(*process_args, self.uri)
             for _ in range(number_of_jobs)
         ]
         [p.start() for p in self.processes]
@@ -206,7 +203,7 @@ class ZmqManager:
             raise ValueError("idle_clients is empty")
         self.socket.send_multipart([self.idle_clients.pop(), pickle.dumps(time.time())] + message)
 
-    def send_to_all_process(self, message):
+    def send_to_all_idle_processes(self, message):
         if not self.idle_clients:
             raise ValueError("idle_clients is empty")
         for client in self.idle_clients:
@@ -228,8 +225,12 @@ class ZmqManager:
         return self.number_processes_killed == self.number_of_jobs
 
     def kill_all_processes(self):
-        self.send_to_all_process([CommandType.SHUTDOWN.value])
+        self.send_to_all_idle_processes([CommandType.SHUTDOWN.value])
         self.killing_processes = True
+
+    def join_all_processes(self):
+        for p in self.processes:
+            p.join()
 
     def terminate_all_processes(self):
         for p in self.processes:
@@ -391,10 +392,6 @@ class _Convert:
         self.graph = graph
         self.benchmark = benchmark
         self.startup = None
-        if self.verbose >= 1:
-            self.print_summary()
-        if self.graph:
-            self.progression_log = open('progression.csv', 'w')
 
         self.infos = self.get_infos(color_scale, srs_in, srs_out)
 
@@ -402,6 +399,11 @@ class _Convert:
         self.rotation_matrix, self.original_aabb, self.avg_min = self.get_rotation_matrix(srs_in, transformer)
         self.root_aabb, self.root_scale, self.root_spacing = self.get_root_aabb(self.original_aabb)
         octree_metadata = OctreeMetadata(aabb=self.root_aabb, spacing=self.root_spacing, scale=self.root_scale[0])
+
+        if self.verbose >= 1:
+            self.print_summary()
+        if self.graph:
+            self.progression_log = open('progression.csv', 'w')
 
         # create folder
         self.out_folder = outfolder
@@ -515,7 +517,7 @@ class _Convert:
         self.startup = time.time()
 
         try:
-            while not self.zmq_manager.are_all_processes_killed():
+            while not self.zmq_manager.killing_processes:
                 now = time.time() - self.startup
 
                 at_least_one_job_ended = False
@@ -532,7 +534,7 @@ class _Convert:
                     self.send_file_to_read()
 
                 # if at this point we have no work in progress => we're done
-                if self.zmq_manager.are_all_processes_idle() and not self.zmq_manager.killing_processes:
+                if self.zmq_manager.are_all_processes_idle():
                     self.zmq_manager.kill_all_processes()
 
                 if at_least_one_job_ended:
@@ -542,6 +544,8 @@ class _Convert:
                         print('{}, {}'.format(time.time() - self.startup, percent), file=self.progression_log)
 
                 self.node_store.control_memory_usage(self.cache_size, self.verbose)
+
+            self.zmq_manager.join_all_processes()
 
             if self.state.points_in_pnts != self.infos['point_count']:
                 raise ValueError("!!! Invalid point count in the written .pnts"
@@ -733,7 +737,7 @@ class _Convert:
         transform = np.dot(translation_matrix(self.avg_min), transform)
 
         # build fake points
-        root_node = Node('', self.root_aabb, self.root_spacing * 2)
+        root_node = Node(''.encode('utf-8'), self.root_aabb, self.root_spacing * 2)
         root_node.children = []
         inv_aabb_size = (1.0 / np.maximum(MIN_POINT_SIZE, self.root_aabb[1] - self.root_aabb[0])).astype(
             np.float32)
@@ -741,6 +745,7 @@ class _Convert:
             ondisk_tile = name_to_filename(self.out_folder, str(child).encode('ascii'), '.pnts')
             if os.path.exists(ondisk_tile):
                 tile_content = TileContentReader.read_file(ondisk_tile)
+
                 fth = tile_content.body.feature_table.header
                 xyz = tile_content.body.feature_table.body.positions_arr.view(np.float32).reshape(
                     (fth.points_length, 3))
@@ -766,7 +771,7 @@ class _Convert:
         root_tileset['refine'] = 'REPLACE'
         if "children" in root_tileset:
             for child in root_tileset['children']:
-                child['refine'] = 'ADD'
+                child['refine'] = 'ADD'  # type: ignore
 
         tileset = {
             'asset': {
@@ -791,7 +796,7 @@ class _Convert:
         print('  - scale: {}'.format(self.root_scale))
 
     def draw_graph(self):
-        import pygal
+        import pygal  # type: ignore
 
         dateline = pygal.XY(x_label_rotation=25, secondary_range=(0, 100))
         for pid in self.zmq_manager.activities:
@@ -862,8 +867,7 @@ class _Convert:
                   flush=True)
 
 
-def init_parser(subparser, str2bool):
-
+def init_parser(subparser):
     parser = subparser.add_parser(
         'convert',
         help='Convert .las files to a 3dtiles tileset.',
@@ -880,12 +884,11 @@ def init_parser(subparser, str2bool):
     parser.add_argument(
         '--overwrite',
         help='Delete and recreate the ouput folder if it already exists. WARNING: be careful, there will be no confirmation!',
-        default=False,
-        type=str2bool)
+        action='store_true')
     parser.add_argument(
         '--jobs',
         help='The number of parallel jobs to start. Default to the number of cpu.',
-        default=multiprocessing.cpu_count(),
+        default=cpu_count(),
         type=int)
     parser.add_argument(
         '--cache_size',
@@ -904,14 +907,16 @@ def init_parser(subparser, str2bool):
         '--benchmark',
         help='Print summary at the end of the process', type=str)
     parser.add_argument(
-        '--rgb',
-        help='Export rgb attributes', type=str2bool, default=True)
+        '--no-rgb',
+        help="Don't export rgb attributes", action='store_true')
     parser.add_argument(
         '--graph',
-        help='Produce debug graphes (requires pygal)', type=str2bool, default=False)
+        help='Produce debug graphes (requires pygal)', action='store_true')
     parser.add_argument(
         '--color_scale',
         help='Force color scale', type=float)
+
+    return parser
 
 
 def main(args):
@@ -925,7 +930,7 @@ def main(args):
                        srs_in=args.srs_in,
                        fraction=args.fraction,
                        benchmark=args.benchmark,
-                       rgb=args.rgb,
+                       rgb=not args.no_rgb,
                        graph=args.graph,
                        color_scale=args.color_scale,
                        verbose=args.verbose)

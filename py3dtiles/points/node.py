@@ -1,6 +1,10 @@
+from __future__ import annotations
+
+import concurrent.futures
 import json
 import os
 import pickle
+from typing import Iterator, List, Tuple, TYPE_CHECKING, Union
 
 import numpy as np
 
@@ -12,9 +16,22 @@ from py3dtiles.points.points_grid import Grid
 from py3dtiles.points.task.pnts_writer import points_to_pnts
 from py3dtiles.points.utils import aabb_size_to_subdivision_type, name_to_filename, node_from_name, SubdivisionType
 
+if TYPE_CHECKING:
+    from py3dtiles.points.node_catalog import NodeCatalog
+
 
 def node_to_tileset(args):
     return Node.to_tileset(None, args[0], args[1], args[2], args[3], args[4])
+
+
+class DummyNode:
+    def __init__(self, _bytes):
+        if 'children' in _bytes:
+            self.children = _bytes['children']
+            self.grid = _bytes['grid']
+        else:
+            self.children = None
+            self.points = _bytes['points']
 
 
 class Node:
@@ -24,7 +41,7 @@ class Node:
         'spacing', 'pending_xyz', 'pending_rgb', 'children', 'grid', 'serialized_at',
         'points', 'dirty')
 
-    def __init__(self, name, aabb, spacing):
+    def __init__(self, name: bytes, aabb: np.ndarray, spacing: float) -> None:
         super(Node, self).__init__()
         self.name = name
         self.aabb = aabb.astype(np.float32)
@@ -40,7 +57,7 @@ class Node:
         self.points = []
         self.dirty = False
 
-    def save_to_bytes(self):
+    def save_to_bytes(self) -> bytes:
         sub_pickle = {}
         if self.children is not None:
             sub_pickle['children'] = self.children
@@ -51,7 +68,7 @@ class Node:
         d = pickle.dumps(sub_pickle)
         return d
 
-    def load_from_bytes(self, byt):
+    def load_from_bytes(self, byt: bytes) -> None:
         sub_pickle = pickle.loads(byt)
         if 'children' in sub_pickle:
             self.children = sub_pickle['children']
@@ -59,7 +76,7 @@ class Node:
         else:
             self.points = sub_pickle['points']
 
-    def insert(self, node_catalog, scale, xyz, rgb, make_empty_node=False):
+    def insert(self, node_catalog: NodeCatalog, scale: float, xyz: np.ndarray, rgb: np.ndarray, make_empty_node: bool = False):
         if make_empty_node:
             self.children = []
             self.pending_xyz += [xyz]
@@ -91,18 +108,18 @@ class Node:
             self.pending_xyz += [reminder_xyz]
             self.pending_rgb += [reminder_rgb]
 
-    def needs_balance(self):
+    def needs_balance(self) -> bool:
         if self.children is not None:
             return self.grid.needs_balance()
         return False
 
-    def flush_pending_points(self, catalog, scale):
+    def flush_pending_points(self, catalog: NodeCatalog, scale: float) -> None:
         for name, xyz, rgb in self._get_pending_points():
             catalog.get_node(name).insert(catalog, scale, xyz, rgb)
         self.pending_xyz = []
         self.pending_rgb = []
 
-    def dump_pending_points(self):
+    def dump_pending_points(self) -> List[Tuple[bytes, bytes, int]]:
         result = [
             (name, pickle.dumps({'xyz': xyz, 'rgb': rgb}), len(xyz))
             for name, xyz, rgb in self._get_pending_points()
@@ -112,10 +129,10 @@ class Node:
         self.pending_rgb = []
         return result
 
-    def get_pending_points_count(self):
+    def get_pending_points_count(self) -> int:
         return sum([xyz.shape[0] for xyz in self.pending_xyz])
 
-    def _get_pending_points(self):
+    def _get_pending_points(self) -> Iterator[Tuple[bytes, np.ndarray, np.ndarray]]:
         if not self.pending_xyz:
             return
 
@@ -151,13 +168,13 @@ class Node:
             if len(xyz) > 0:
                 yield name, xyz, pending_rgb_arr[mask]
 
-    def _split(self, node_catalog, scale):
+    def _split(self, node_catalog: NodeCatalog, scale: float) -> None:
         self.children = []
         for xyz, rgb in self.points:
             self.insert(node_catalog, scale, xyz, rgb)
-        self.points = None
+        self.points = []
 
-    def get_point_count(self, node_catalog, max_depth, depth=0):
+    def get_point_count(self, node_catalog: NodeCatalog, max_depth: int, depth: int = 0) -> int:
         if self.children is None:
             return sum([xyz.shape[0] for xyz, rgb in self.points])
         else:
@@ -169,7 +186,7 @@ class Node:
             return count
 
     @staticmethod
-    def get_points(data, include_rgb):
+    def get_points(data: Union["Node", DummyNode], include_rgb: bool) -> np.ndarray:  # todo remove staticmethod
         if data.children is None:
             points = data.points
             xyz = np.concatenate(tuple([xyz for xyz, rgb in points])).view(np.uint8).ravel()
@@ -186,17 +203,24 @@ class Node:
             return data.grid.get_points(include_rgb)
 
     @staticmethod
-    def to_tileset(executor, name, parent_aabb, parent_spacing, folder, scale):
+    def to_tileset(executor: Union[concurrent.futures.ProcessPoolExecutor, None],
+                   name: bytes,
+                   parent_aabb: np.ndarray,
+                   parent_spacing: float,
+                   folder: str,
+                   scale: np.ndarray) -> dict:
         node = node_from_name(name, parent_aabb, parent_spacing)
         aabb = node.aabb
         ondisk_tile = name_to_filename(folder, name, '.pnts')
-        xyz, rgb = None, None
+        xyz = np.array(0)
+        rgb = np.array(0)
 
         # Read tile's pnts file, if existing, we'll need it for:
         #   - computing the real AABB (instead of the one based on the octree)
         #   - merging this tile's small (<100 points) children
         if os.path.exists(ondisk_tile):
             tile = TileContentReader.read_file(ondisk_tile)
+
             fth = tile.body.feature_table.header
             xyz = tile.body.feature_table.body.positions_arr
             if fth.colors != SemanticPoint.NONE:
@@ -222,9 +246,10 @@ class Node:
 
             if os.path.exists(child_ondisk_tile):
                 # See if we should merge this child in tile
-                if xyz is not None:
+                if len(xyz):
                     # Read pnts content
                     tile = TileContentReader.read_file(child_ondisk_tile)
+
                     fth = tile.body.feature_table.header
 
                     # If this child is small enough, merge in the current tile
@@ -261,7 +286,7 @@ class Node:
         # the pnts file needs to be rewritten.
         if tile_needs_rewrite:
             os.remove(ondisk_tile)
-            count, filename = points_to_pnts(name, np.concatenate((xyz, rgb)), folder, rgb is not None)
+            count, filename = points_to_pnts(name, np.concatenate((xyz, rgb)), folder, len(rgb) != 0)
 
         center = ((aabb[0] + aabb[1]) * 0.5).tolist()
         half_size = ((aabb[1] - aabb[0]) * 0.5).tolist()
@@ -295,6 +320,5 @@ class Node:
                 with open('{}/{}'.format(folder, tileset_name), 'w') as f:
                     f.write(json.dumps(tile_root))
                 tileset['content'] = {'uri': tileset_name}
-                tileset['children'] = []
 
         return tileset

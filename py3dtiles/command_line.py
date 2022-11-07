@@ -6,31 +6,22 @@ import py3dtiles.info as info
 import py3dtiles.merger as merger
 
 
-# https://stackoverflow.com/a/43357954
-def str2bool(v):
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
-
-
 def main():
     parser = argparse.ArgumentParser(
         description='Read/write 3dtiles files',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument(
-        '--verbose',
-        help='Print logs (-1: no logs, 0: progress indicator, 1+: increased verbosity)',
-        default=0, type=int)
     sub_parsers = parser.add_subparsers(dest='command')
 
     # init subparsers
-    convert.init_parser(sub_parsers, str2bool)
-    info.init_parser(sub_parsers, str2bool)
-    merger.init_parser(sub_parsers, str2bool)
-    export.init_parser(sub_parsers)
+    command_parsers = [
+        convert.init_parser(sub_parsers),
+        info.init_parser(sub_parsers),
+        merger.init_parser(sub_parsers),
+        export.init_parser(sub_parsers)
+    ]
+    # add the verbose argument for all sub-parsers so that it is after the command.
+    for command_parser in command_parsers:
+        command_parser.add_argument('--verbose', '-v', action='count', default=0)
 
     args = parser.parse_args()
 
