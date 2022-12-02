@@ -29,7 +29,6 @@ class TileContent:
 
         # create filepath if doesn't exist
         path.parent.mkdir(parents=True, exist_ok=True)
-        # path.touch(exist_ok=True)
 
         with path.open('bw') as f:
             f.write(bytes(tile_arr))
