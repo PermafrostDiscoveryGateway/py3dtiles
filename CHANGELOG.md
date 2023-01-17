@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented in this file.
 
+## v4.0.0 (2023-01-09)
+
+### BREAKING CHANGE
+
+- The parameter `srs_in` and `srs_out` of `py3dtiles.convert.convert` have been
+renamed to `crs_in` and `crs_out`. Furthermore, their type is no longer int
+or str but `pyproj.CRS`. No change has been made to the command-line `py3dtiles convert`, but you can use proj4 string in addition to epsg code. To migrate old code, instead of:
+```python
+from py3dtiles.convert import convert
+# ...
+convert('without_srs.las', outfolder=tmp_dir, crs_out='4978')
+```
+you can do:
+```python
+from pyproj import CRS
+from py3dtiles.convert import convert
+# ...
+convert('without_srs.las', outfolder=tmp_dir, crs_out=CRS.from_epsg(4978))
+```
+- SrsInMissingException has been moved from `py3dtiles/utils.py` to `py3dtiles/exceptions.py`.
+
+### Feat
+
+The main feature of this release is that you can now mix las/laz/xyz files in one invocation of the convert function.
+
+### Fix
+
+- **shared_node_store.py**: fix node removing in cache if already deleted
+- change srs_in to srs_out to fix refactoring error
+- avoid duplicate points when the mode is replace
+
+### Refactor
+
+- **convert**: rename the 'infos' variable and function to 'file_info'
+- **convert**: use CRS almost everywhere instead of string representing epsg code
+- **exceptions**: move all custom exceptions at the same place
+- **convert**: use a dictionary to find the correct reader
+- fix issues find by pre-commit
+
+### Chores
+
+- add pre-commit hooks
+
 ## v3.0.0
 
 ### BREAKING
@@ -50,7 +93,7 @@ entry point and support multiple commands. The existing commands 'export_tileset
 ### Changes
 
 - relicensed as Apache 2.0.
-- minimal python supported is now 3.7
+- minimal python supported is now 3.8
 - dependencies versions has been updated:
     - laspy should be at least 2.0
     - numpy at least 1.20.0
@@ -72,7 +115,7 @@ Other features:
 
 ### Fixes
 
-* 53580ba Jeremy Gaillard       fix: use y-up orientation for glTF objects in export script  
-* 65d6f67 Jeremy Gaillard       fix: proper bounding box size in export script  
-* 3603b00 Augustin Trancart     fix: reliably select triangulation projection plane and orientation  
+* 53580ba Jeremy Gaillard       fix: use y-up orientation for glTF objects in export script
+* 65d6f67 Jeremy Gaillard       fix: proper bounding box size in export script
+* 3603b00 Augustin Trancart     fix: reliably select triangulation projection plane and orientation
 * fd2105a jailln                Fix gltf min and max value

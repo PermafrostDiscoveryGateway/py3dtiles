@@ -5,7 +5,9 @@ import unittest
 
 import numpy as np
 
-from py3dtiles import B3dm, GlTF, TileContentReader, TriangleSoup
+from py3dtiles.tilers.b3dm.wkb_utils import TriangleSoup
+from py3dtiles.tileset.content import B3dm, GlTF
+from py3dtiles.tileset.utils import TileContentReader
 
 
 class TestTileContentReader(unittest.TestCase):
@@ -20,7 +22,7 @@ class TestTileContentReader(unittest.TestCase):
         self.assertEqual(tile.header.bt_json_byte_length, 0)
         self.assertEqual(tile.header.bt_bin_byte_length, 0)
 
-        with open('tests/fixtures/dragon_low_gltf_header.json', 'r') as f:
+        with open('tests/fixtures/dragon_low_gltf_header.json') as f:
             gltf_header = json.loads(f.read())
         self.assertDictEqual(gltf_header, tile.body.glTF.header)
 

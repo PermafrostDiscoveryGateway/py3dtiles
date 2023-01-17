@@ -3,9 +3,9 @@ import struct
 
 import numpy as np
 
-from .batch_table import BatchTable
+from py3dtiles.tileset.batch_table import BatchTable
+from py3dtiles.tileset.tile_content import TileContent, TileContentBody, TileContentHeader, TileContentType
 from .gltf import GlTF
-from .tile_content import TileContent, TileContentBody, TileContentHeader, TileContentType
 
 # 1008 - Lauren - importing FeatureTable
 from .feature_table import FeatureTable

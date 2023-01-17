@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from typing import Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from numba import njit
 from numba.typed import List
 import numpy as np
 
-from py3dtiles.points.distance import is_point_far_enough, xyz_to_key
-from py3dtiles.points.utils import aabb_size_to_subdivision_type, SubdivisionType
+from py3dtiles.utils import aabb_size_to_subdivision_type, SubdivisionType
+from .distance import is_point_far_enough, xyz_to_key
 
 if TYPE_CHECKING:
-    from py3dtiles.points.node import Node
+    from .node import Node
 
 
 @njit(fastmath=True, cache=True)
@@ -73,7 +73,7 @@ class Grid:
     def max_key_value(self) -> int:
         return 1 << (2 * int(self.cell_count[0]).bit_length() + int(self.cell_count[2]).bit_length())
 
-    def insert(self, aabmin: np.ndarray, inv_aabb_size: np.ndarray, xyz: np.ndarray, rgb: np.ndarray, force: bool = False) -> Tuple[np.ndarray, np.ndarray, bool]:
+    def insert(self, aabmin: np.ndarray, inv_aabb_size: np.ndarray, xyz: np.ndarray, rgb: np.ndarray, force: bool = False) -> tuple[np.ndarray, np.ndarray, bool]:
         return _insert(
             self.cells_xyz,
             self.cells_rgb,

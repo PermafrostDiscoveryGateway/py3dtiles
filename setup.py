@@ -19,9 +19,8 @@ requirements = (
 )
 
 dev_requirements = (
-    'flake8',
-    'flake8-import-order',
-    'flake8-bugbear',
+    'commitizen',
+    'pre-commit',
     'pytype',
     'pytest',
     'pytest-cov',
@@ -35,6 +34,18 @@ doc_requirements = (
     'sphinx-multiversion',
 )
 
+packaging_requirements = sum(
+    (
+        dev_requirements,
+        (
+            'build',
+            'twine',
+            'wheel'
+        ),
+    ),
+    ()
+)
+
 
 def read(fname):
     return open(os.path.join(os.path.dirname(__file__), fname)).read()
@@ -45,7 +56,7 @@ def find_version(*file_paths):
     see https://github.com/pypa/sampleproject/blob/master/setup.py
     """
 
-    with open(os.path.join(here, *file_paths), 'r') as f:
+    with open(os.path.join(here, *file_paths)) as f:
         version_file = f.read()
 
     # The version line must have the form
@@ -67,18 +78,19 @@ setup(
     author='Oslandia and PermafrostDiscoveryGateway',
     author_email='contact@oslandia.com',
     license='Apache License Version 2.0',
-    python_requires='>=3.7',
+    python_requires='>=3.8',
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: Developers',
-        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
     ],
     packages=find_packages(),
     install_requires=requirements,
     test_suite="tests",
     extras_require={
         'dev': dev_requirements,
-        'doc': doc_requirements
+        'doc': doc_requirements,
+        'pack': packaging_requirements,
     },
     entry_points={
         'console_scripts': ['py3dtiles=py3dtiles.command_line:main'],

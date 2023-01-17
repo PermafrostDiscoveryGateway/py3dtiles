@@ -6,7 +6,7 @@ from typing import Tuple
 
 import lz4.frame as gzip
 
-from py3dtiles.points.utils import node_name_to_path
+from py3dtiles.utils import node_name_to_path
 
 
 class SharedNodeStore:
@@ -39,7 +39,7 @@ class SharedNodeStore:
             return
 
         if verbose >= 2:
-            print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> CACHE CLEANING [{}]'.format(before))
+            print(f'>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> CACHE CLEANING [{before}]')
         self.remove_oldest_nodes(1 - max_size_mb / before)
         gc.collect()
 
@@ -68,8 +68,9 @@ class SharedNodeStore:
         meta = self.metadata.pop(name, None)
 
         node_path = node_name_to_path(self.folder, name)
-        if meta is None and not node_path.exists():
-            raise FileNotFoundError(f"{node_path} should exist")
+        if meta is None:
+            if not node_path.exists():
+                raise FileNotFoundError(f"{node_path} should exist")
         else:
             self.memory_size['content'] -= getsizeof(meta)
             self.memory_size['content'] -= len(self.data[meta[1]])

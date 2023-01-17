@@ -4,20 +4,20 @@ import concurrent.futures
 import json
 from pathlib import Path
 import pickle
-from typing import Iterator, List, Tuple, TYPE_CHECKING, Union
+from typing import Iterator, TYPE_CHECKING
 
 import numpy as np
 
-from py3dtiles import TileContentReader
-from py3dtiles.constants import MIN_POINT_SIZE
-from py3dtiles.feature_table import SemanticPoint
-from py3dtiles.points.distance import xyz_to_child_index
-from py3dtiles.points.points_grid import Grid
-from py3dtiles.points.task.pnts_writer import points_to_pnts
-from py3dtiles.points.utils import aabb_size_to_subdivision_type, node_from_name, node_name_to_path, SubdivisionType
+from py3dtiles.tilers.pnts import MIN_POINT_SIZE
+from py3dtiles.tilers.pnts.pnts_writer import points_to_pnts
+from py3dtiles.tileset.feature_table import SemanticPoint
+from py3dtiles.tileset.utils import TileContentReader
+from py3dtiles.utils import aabb_size_to_subdivision_type, node_from_name, node_name_to_path, SubdivisionType
+from .distance import xyz_to_child_index
+from .points_grid import Grid
 
 if TYPE_CHECKING:
-    from py3dtiles.points.node_catalog import NodeCatalog
+    from .node_catalog import NodeCatalog
 
 
 def node_to_tileset(args):
@@ -42,7 +42,7 @@ class Node:
         'points', 'dirty')
 
     def __init__(self, name: bytes, aabb: np.ndarray, spacing: float) -> None:
-        super(Node, self).__init__()
+        super().__init__()
         self.name = name
         self.aabb = aabb.astype(np.float32)
         self.aabb_size = np.maximum(aabb[1] - aabb[0], MIN_POINT_SIZE).astype(np.float32)
@@ -118,7 +118,7 @@ class Node:
         self.pending_xyz = []
         self.pending_rgb = []
 
-    def dump_pending_points(self) -> List[Tuple[bytes, bytes, int]]:
+    def dump_pending_points(self) -> list[tuple[bytes, bytes, int]]:
         result = [
             (name, pickle.dumps({'xyz': xyz, 'rgb': rgb}), len(xyz))
             for name, xyz, rgb in self._get_pending_points()
@@ -131,7 +131,7 @@ class Node:
     def get_pending_points_count(self) -> int:
         return sum([xyz.shape[0] for xyz in self.pending_xyz])
 
-    def _get_pending_points(self) -> Iterator[Tuple[bytes, np.ndarray, np.ndarray]]:
+    def _get_pending_points(self) -> Iterator[tuple[bytes, np.ndarray, np.ndarray]]:
         if not self.pending_xyz:
             return
 
@@ -185,7 +185,7 @@ class Node:
             return count
 
     @staticmethod
-    def get_points(data: Union["Node", DummyNode], include_rgb: bool) -> np.ndarray:  # todo remove staticmethod
+    def get_points(data: Node | DummyNode, include_rgb: bool) -> np.ndarray:  # todo remove staticmethod
         if data.children is None:
             points = data.points
             xyz = np.concatenate(tuple([xyz for xyz, rgb in points])).view(np.uint8).ravel()
@@ -202,12 +202,13 @@ class Node:
             return data.grid.get_points(include_rgb)
 
     @staticmethod
-    def to_tileset(executor: Union[concurrent.futures.ProcessPoolExecutor, None],
+    def to_tileset(executor: concurrent.futures.ProcessPoolExecutor | None,
                    name: bytes,
                    parent_aabb: np.ndarray,
                    parent_spacing: float,
                    folder: Path,
-                   scale: np.ndarray) -> dict:
+                   scale: np.ndarray,
+                   prune: bool = True) -> dict:
         node = node_from_name(name, parent_aabb, parent_spacing)
         aabb = node.aabb
         tile_path = node_name_to_path(folder, name, '.pnts')
@@ -252,8 +253,11 @@ class Node:
 
                     fth = tile.body.feature_table.header
 
-                    # If this child is small enough, merge in the current tile
-                    if fth.points_length < 100:
+                    # If this child is small enough, merge in the current tile.
+                    # prune should be set at False is the refine mode is REPLACE.
+                    # In some cases, we cannot know which point in the parent tile should be deleted
+                    # (for example when 2 points are at the same location)
+                    if prune and fth.points_length < 100:
                         xyz = np.concatenate(
                             (xyz,
                              tile.body.feature_table.body.positions_arr))
@@ -321,5 +325,6 @@ class Node:
                 with tileset_path.open('w') as f:
                     json.dump(tile_root, f)
                 tileset['content'] = {'uri': tileset_name}
+                del tileset['children']
 
         return tileset

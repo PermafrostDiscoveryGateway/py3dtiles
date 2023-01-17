@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import copy
-from typing import List, Tuple, TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .bounding_volume import BoundingVolume
 
 if TYPE_CHECKING:
-    from . import Tile
+    from .tile import Tile
 
 # In order to prevent the appearance of ghost newline characters ("\n")
 # when printing a numpy.array (mainly self._box in this file):
@@ -20,13 +20,14 @@ class BoundingVolumeBox(BoundingVolume):
     A box bounding volume as defined in the 3DTiles specifications i.e. an
     array of 12 numbers that define an oriented bounding box:
     - The first three elements define the x, y, and z values for the
-      center of the box.
+    center of the box.
     - The next three elements (with indices 3, 4, and 5) define the x axis
-      direction and half-length.
+    direction and half-length.
     - The next three elements (with indices 6, 7, and 8) define the y axis
-      direction and half-length.
+    direction and half-length.
     - The last three elements (indices 9, 10, and 11) define the z axis
-      direction and half-length."
+    direction and half-length.
+
     Note that, by default, a box bounding volume doesn't need to be aligned
     with the coordinate axis. Still in general, computing the box bounding
     volume of two box bounding volumes won't necessarily yield a box that is
@@ -48,7 +49,7 @@ class BoundingVolumeBox(BoundingVolume):
 
         return self._box[0: 3]
 
-    def translate(self, offset: Union[list, np.ndarray]) -> None:
+    def translate(self, offset: list | np.ndarray) -> None:
         """
         Translate the box center with the given offset "vector"
         :param offset: the 3D vector by which the box should be translated
@@ -59,7 +60,7 @@ class BoundingVolumeBox(BoundingVolume):
         for i in range(0, 3):
             self._box[i] += offset[i]
 
-    def transform(self, transform: Union[List[float], np.ndarray]) -> None:
+    def transform(self, transform: list[float] | np.ndarray) -> None:
         """
         Apply the provided transformation matrix (4x4) to the box
         :param transform: transformation matrix (4x4) to be applied
@@ -115,7 +116,7 @@ class BoundingVolumeBox(BoundingVolume):
             raise ValueError(reason)
         self._box = box
 
-    def set_from_mins_maxs(self, mins_maxs: Union[list, np.ndarray]) -> None:
+    def set_from_mins_maxs(self, mins_maxs: list | np.ndarray) -> None:
         """
         :param mins_maxs: the list [x_min, y_min, z_min, x_max, y_max, z_max]
                           that is the boundaries of the box along each
@@ -197,7 +198,7 @@ class BoundingVolumeBox(BoundingVolume):
         return {'boundingVolume': list(self._box)}
 
     @staticmethod
-    def get_box_array_from_mins_maxs(mins_maxs: Union[list, np.ndarray]) -> np.ndarray:
+    def get_box_array_from_mins_maxs(mins_maxs: list | np.ndarray) -> np.ndarray:
         """
         :param mins_maxs: the list [x_min, y_min, z_min, x_max, y_max, z_max]
                           that is the boundaries of the box along each
@@ -225,7 +226,7 @@ class BoundingVolumeBox(BoundingVolume):
                                new_z_half_axis))
 
     @staticmethod
-    def get_box_array_from_point(points: List[List[float]]) -> np.ndarray:
+    def get_box_array_from_point(points: list[list[float]]) -> np.ndarray:
         """
         :param points: a list of 3D points
         :return: the smallest box (as an array, as opposed to a
@@ -241,7 +242,7 @@ class BoundingVolumeBox(BoundingVolume):
              max(c[2] for c in points)])
 
     @staticmethod
-    def is_valid(box) -> Tuple[bool, str]:
+    def is_valid(box) -> tuple[bool, str]:
         if box is None:
             return False, 'Bounding Volume Box is not defined.'
         if not box.ndim == 1:

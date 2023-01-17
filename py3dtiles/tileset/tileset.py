@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
-from typing import List, Union
-
-
+from typing import List
 
 from .extendable import Extendable
 from .tile import Tile
@@ -38,8 +36,8 @@ class TileSet(Extendable):
         """
         Write (or overwrite), to the directory whose name is provided, the
         TileSet that is:
-          - the tileset as a json file and
-          - all the tiles content of the Tiles used by the Tileset.
+        - the tileset as a json file and
+        - all the tiles content of the Tiles used by the Tileset.
         :param directory: the target directory name
         """
         # Create the output directory

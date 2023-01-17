@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Union
 
 from .extendable import Extendable
 from .tile_content import TileContent
@@ -20,7 +19,7 @@ class Tile(Extendable):
         # Some possible valid properties left un-delt with viewerRequestVolume
         self._transform = None
 
-    def set_transform(self, transform: List[float]) -> None:
+    def set_transform(self, transform: list[float]) -> None:
         """
         :param transform: a flattened transformation matrix
         :return:
@@ -68,10 +67,10 @@ class Tile(Extendable):
     def has_children(self) -> bool:
         return len(self._children) != 0
 
-    def get_direct_children(self) -> List[Tile]:
+    def get_direct_children(self) -> list[Tile]:
         return self._children
 
-    def get_children(self) -> List[Tile]:
+    def get_children(self) -> list[Tile]:
         """
         :return: the recursive (across the children tree) list of the children
                  tiles
@@ -107,11 +106,11 @@ class Tile(Extendable):
         as parameter and withing the relative filename designated by
         the tile's content uri. Note that it is the responsibility of the
         owning TileSet to
-          - set those uris
-          - to explicitly invoke write_content() (this is to be opposed with
-            the Tile attributes which get serialized when recursing on the
-            TileSet attributes)
-            :param directory: the target directory
+        - set those uris
+        - to explicitly invoke write_content() (this is to be opposed with
+        the Tile attributes which get serialized when recursing on the
+        TileSet attributes)
+        :param directory: the target directory
         """
         file_name = self.get_content_uri()
         if not file_name:

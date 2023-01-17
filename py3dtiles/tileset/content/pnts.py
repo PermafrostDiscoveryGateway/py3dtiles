@@ -2,8 +2,8 @@ import struct
 
 import numpy as np
 
-from .feature_table import FeatureTable
-from .tile_content import TileContent, TileContentBody, TileContentHeader, TileContentType
+from py3dtiles.tileset.feature_table import FeatureTable
+from py3dtiles.tileset.tile_content import TileContent, TileContentBody, TileContentHeader, TileContentType
 
 
 class Pnts(TileContent):

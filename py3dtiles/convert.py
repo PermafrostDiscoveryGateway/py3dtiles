@@ -11,23 +11,25 @@ import struct
 import sys
 import time
 import traceback
+from typing import List, Optional, Union
 
 import numpy as np
 import psutil
 from pyproj import CRS, Transformer
 import zmq
 
-from py3dtiles import TileContentReader
-from py3dtiles.constants import MIN_POINT_SIZE
-from py3dtiles.exceptions import WorkerException
-from py3dtiles.points.node import Node
-from py3dtiles.points.shared_node_store import SharedNodeStore
-from py3dtiles.points.task import las_reader, node_process, pnts_writer, xyz_reader
-from py3dtiles.points.transformations import (
+from py3dtiles.exceptions import SrsInMissingException, SrsInMixinException, WorkerException
+from py3dtiles.reader import las_reader, xyz_reader
+from py3dtiles.tilers.node import Node
+from py3dtiles.tilers.node import node_process
+from py3dtiles.tilers.node import SharedNodeStore
+from py3dtiles.tilers.pnts import pnts_writer
+from py3dtiles.tilers.pnts.constants import MIN_POINT_SIZE
+from py3dtiles.tilers.transformations import (
     angle_between_vectors, inverse_matrix, rotation_matrix, scale_matrix, translation_matrix, vector_product
 )
-from py3dtiles.points.utils import CommandType, compute_spacing, node_name_to_path, ResponseType
-from py3dtiles.utils import SrsInMissingException
+from py3dtiles.tileset.utils import TileContentReader
+from py3dtiles.utils import CommandType, compute_spacing, node_name_to_path, ResponseType, str_to_CRS
 
 TOTAL_MEMORY_MB = int(psutil.virtual_memory().total / (1024 * 1024))
 DEFAULT_CACHE_SIZE = int(TOTAL_MEMORY_MB / 10)
@@ -41,6 +43,11 @@ else:
 
 OctreeMetadata = namedtuple('OctreeMetadata', ['aabb', 'spacing', 'scale'])
 
+READER_MAP = {
+    '.xyz': xyz_reader,
+    '.las': las_reader,
+    '.laz': las_reader,
+}
 
 def make_rotation_matrix(z1, z2):
     v0 = z1 / np.linalg.norm(z1)
@@ -78,7 +85,7 @@ class Worker(Process):
         idle_time = 0
 
         if self.activity_graph:
-            activity = open('activity.{}.csv'.format(os.getpid()), 'w')
+            activity = open(f'activity.{os.getpid()}.csv', 'w')
 
         # notify we're ready
         self.skt.send_multipart([ResponseType.IDLE.value])
@@ -97,7 +104,7 @@ class Worker(Process):
 
                 delta = time.time() - pickle.loads(message[0])
                 if delta > 0.01 and self.verbosity >= 1:
-                    print('{} / {} : Delta time: {}'.format(os.getpid(), round(after, 2), round(delta, 3)))
+                    print(f'{os.getpid()} / {round(after, 2)} : Delta time: {round(delta, 3)}')
 
                 if command == CommandType.READ_FILE.value:
                     self.execute_read_file(content)
@@ -142,9 +149,14 @@ class Worker(Process):
     def execute_read_file(self, content):
         parameters = pickle.loads(content[1])
 
-        ext = PurePath(parameters['filename']).suffix
-        init_reader_fn = las_reader.run if ext in ('.las', '.laz') else xyz_reader.run
-        init_reader_fn(
+        extension = PurePath(parameters['filename']).suffix
+        if extension in READER_MAP:
+            reader = READER_MAP[extension]
+        else:
+            raise ValueError(f"The file with {extension} extension can't be read, "
+                             f"the available extensions are: {READER_MAP.keys()}")
+
+        reader.run(
             parameters['filename'],
             parameters['offset_scale'],
             parameters['portion'],
@@ -330,7 +342,6 @@ class State:
             self.number_of_writing_jobs,
             ''))
 
-
 def convert(*args, **kwargs):
     converter = _Convert(*args, **kwargs)
     return converter.convert()
@@ -338,46 +349,35 @@ def convert(*args, **kwargs):
 
 class _Convert:
     def __init__(self,
-                 files,
-                 outfolder='./3dtiles',
-                 overwrite=False,
-                 jobs=CPU_COUNT,
-                 cache_size=DEFAULT_CACHE_SIZE,
-                 srs_out=None,
-                 srs_in=None,
-                 fraction=100,
-                 benchmark=None,
-                 rgb=True,
-                 graph=False,
-                 color_scale=None,
-                 verbose=False):
+                 files: List[Union[str, Path]],
+                 outfolder: Union[str, Path] = './3dtiles',
+                 overwrite: bool = False,
+                 jobs: int = CPU_COUNT,
+                 cache_size: int = DEFAULT_CACHE_SIZE,
+                 crs_out: Optional[CRS] = None,
+                 crs_in: Optional[CRS] = None,
+                 fraction: int = 100,
+                 benchmark: Optional[str] = None,
+                 rgb: bool = True,
+                 graph: bool = False,
+                 color_scale: Optional[float] = None,
+                 verbose: bool = False):
         """
         :param files: Filenames to process. The file must use the .las, .laz or .xyz format.
-        :type files: list of str, or str
         :param outfolder: The folder where the resulting tileset will be written.
-        :type outfolder: path-like object
         :param overwrite: Overwrite the ouput folder if it already exists.
-        :type overwrite: bool
         :param jobs: The number of parallel jobs to start. Default to the number of cpu.
-        :type jobs: int
         :param cache_size: Cache size in MB. Default to available memory / 10.
-        :type cache_size: int
-        :param srs_out: SRS to convert the output with (numeric part of the EPSG code)
-        :type srs_out: int or str
-        :param srs_in: Override input SRS (numeric part of the EPSG code)
-        :type srs_in: int or str
+        :param crs_out: CRS to convert the output with
+        :param crs_in: Set a default input CRS
         :param fraction: Percentage of the pointcloud to process, between 0 and 100.
-        :type fraction: int
         :param benchmark: Print summary at the end of the process
-        :type benchmark: str
         :param rgb: Export rgb attributes.
-        :type rgb: bool
-        :param graph: Produce debug graphes (requires pygal).
-        :type graph: bool
+        :param graph: Produce debug graphs (requires pygal).
         :param color_scale: Force color scale
-        :type color_scale: float
 
         :raises SrsInMissingException: if py3dtiles couldn't find srs informations in input files and srs_in is not specified
+        :raises SrsInMixinException: if the input files have different CRS
 
         """
         self.jobs = jobs
@@ -393,10 +393,10 @@ class _Convert:
         self.benchmark = benchmark
         self.startup = None
 
-        self.infos = self.get_infos(color_scale, srs_in, srs_out)
+        self.file_info = self.get_file_info(color_scale, crs_in)
 
-        crs_in, crs_out, transformer = self.get_crs(srs_in, srs_out)
-        self.rotation_matrix, self.original_aabb, self.avg_min = self.get_rotation_matrix(srs_in, transformer)
+        transformer = self.get_transformer(crs_out)
+        self.rotation_matrix, self.original_aabb, self.avg_min = self.get_rotation_matrix(crs_out, transformer)
         self.root_aabb, self.root_scale, self.root_spacing = self.get_root_aabb(self.original_aabb)
         octree_metadata = OctreeMetadata(aabb=self.root_aabb, spacing=self.root_spacing, scale=self.root_scale[0])
 
@@ -419,44 +419,71 @@ class _Convert:
 
         self.zmq_manager = ZmqManager(self.jobs, (self.graph, transformer, octree_metadata, self.out_folder, self.rgb, self.verbose))
         self.node_store = SharedNodeStore(self.working_dir)
-        self.state = State(self.infos['portions'], max(1, self.jobs // 2))
+        self.state = State(self.file_info['portions'], max(1, self.jobs // 2))
 
-    def get_infos(self, color_scale, srs_in, srs_out):
+    def get_file_info(self, color_scale, crs_in: Optional[CRS]) -> dict:
+
+        pointcloud_file_portions = []
+        aabb = None
+        color_scale_by_file = {}
+        total_point_count = 0
+        avg_min = np.array([0., 0., 0.])
+
         # read all input files headers and determine the aabb/spacing
-        extensions = set()
         for file in self.files:
-            extensions.add(file.suffix)
-        if len(extensions) != 1:
-            raise ValueError("All files should have the same extension, currently there are", extensions)
-        extension = extensions.pop()
-
-        init_reader_fn = las_reader.init if extension in ('.las', '.laz') else xyz_reader.init
-        return init_reader_fn(self.files, color_scale=color_scale, srs_in=srs_in, srs_out=srs_out)
-
-    def get_crs(self, srs_in, srs_out):
-        if srs_out:
-            crs_out = CRS('epsg:{}'.format(srs_out))
-            if srs_in:
-                crs_in = CRS('epsg:{}'.format(srs_in))
-            elif not self.infos['srs_in']:
-                raise SrsInMissingException('No SRS information in the provided files')
+            extension = file.suffix
+            if extension in READER_MAP:
+                reader = READER_MAP[extension]
             else:
-                crs_in = CRS(self.infos['srs_in'])
+                raise ValueError(f"The file with {extension} extension can't be read, "
+                                 f"the available extensions are: {READER_MAP.keys()}")
 
-            transformer = Transformer.from_crs(crs_in, crs_out)
+            file_info = reader.get_metadata(file, color_scale=color_scale)
+
+            pointcloud_file_portions += file_info['portions']
+            if aabb is None:
+                aabb = file_info['aabb']
+            else:
+                aabb[0] = np.minimum(aabb[0], file_info['aabb'][0])
+                aabb[1] = np.maximum(aabb[1], file_info['aabb'][1])
+            color_scale_by_file[str(file)] = file_info['color_scale']
+
+            file_crs_in = str_to_CRS(file_info['srs_in'])
+            if file_crs_in is not None:
+                if crs_in is None:
+                    crs_in = file_crs_in
+                elif crs_in != file_crs_in:
+                    raise SrsInMixinException("All input files should have the same srs in, currently there are a mix of"
+                                     f" {crs_in} and {file_crs_in}")
+            total_point_count += file_info['point_count']
+            avg_min += file_info['avg_min'] / len(self.files)
+
+        return {
+            'portions': pointcloud_file_portions,
+            'aabb': aabb,
+            'color_scale': color_scale_by_file,
+            'crs_in': crs_in,
+            'point_count': total_point_count,
+            'avg_min': avg_min
+        }
+
+    def get_transformer(self, crs_out: CRS) -> Union[Transformer, None]:
+        if crs_out:
+            if self.file_info['crs_in'] is None:
+                raise SrsInMissingException("None file has a input srs specified. Should be provided.")
+
+            transformer = Transformer.from_crs(self.file_info['crs_in'], crs_out)
         else:
-            crs_in = None
-            crs_out = None
             transformer = None
 
-        return crs_in, crs_out, transformer
+        return transformer
 
-    def get_rotation_matrix(self, srs_out, transformer):
-        avg_min = self.infos['avg_min']
-        aabb = self.infos['aabb']
+    def get_rotation_matrix(self, crs_out, transformer):
+        avg_min = self.file_info['avg_min']
+        aabb = self.file_info['aabb']
 
         rotation_matrix = None
-        if srs_out:
+        if crs_out:
 
             bl = np.array(list(transformer.transform(
                 aabb[0][0], aabb[0][1], aabb[0][2])))
@@ -473,7 +500,7 @@ class _Convert:
             bl = bl - avg_min
             tr = tr - avg_min
 
-            if srs_out == '4978':
+            if crs_out.to_epsg() == 4978:
                 # Transform geocentric normal => (0, 0, 1)
                 # and 4978-bbox x axis => (1, 0, 0),
                 # to have a bbox in local coordinates that's nicely aligned with the data
@@ -539,19 +566,19 @@ class _Convert:
                 if at_least_one_job_ended:
                     self.print_debug(now)
                     if self.graph:
-                        percent = round(100 * self.state.processed_points / self.infos['point_count'], 3)
-                        print('{}, {}'.format(time.time() - self.startup, percent), file=self.progression_log)
+                        percent = round(100 * self.state.processed_points / self.file_info['point_count'], 3)
+                        print(f'{time.time() - self.startup}, {percent}', file=self.progression_log)
 
                 self.node_store.control_memory_usage(self.cache_size, self.verbose)
 
             self.zmq_manager.join_all_processes()
 
-            if self.state.points_in_pnts != self.infos['point_count']:
+            if self.state.points_in_pnts != self.file_info['point_count']:
                 raise ValueError("!!! Invalid point count in the written .pnts"
-                                 + f"(expected: {self.infos['point_count']}, was: {self.state.points_in_pnts})")
+                                 + f"(expected: {self.file_info['point_count']}, was: {self.state.points_in_pnts})")
 
             if self.verbose >= 1:
-                print('Writing 3dtiles {}'.format(self.infos['avg_min']))
+                print('Writing 3dtiles {}'.format(self.file_info['avg_min']))
 
             self.write_tileset()
             shutil.rmtree(self.working_dir)
@@ -723,7 +750,7 @@ class _Convert:
                 -self.avg_min,
                 self.root_scale,
                 self.rotation_matrix[:3, :3].T if self.rotation_matrix is not None else None,
-                self.infos['color_scale'].get(file) if self.infos['color_scale'] is not None else None,
+                self.file_info['color_scale'].get(file) if self.file_info['color_scale'] is not None else None,
             ),
             'portion': portion,
         })])
@@ -739,8 +766,8 @@ class _Convert:
         transform = np.dot(transform, scale_matrix(1.0 / self.root_scale[0]))
         transform = np.dot(translation_matrix(self.avg_min), transform)
 
-        # build fake points
-        root_node = Node(''.encode('utf-8'), self.root_aabb, self.root_spacing * 2)
+        # Create the root tile by sampling (or taking all points?) of child nodes
+        root_node = Node(b'', self.root_aabb, self.root_spacing * 2)
         root_node.children = []
         inv_aabb_size = (1.0 / np.maximum(MIN_POINT_SIZE, self.root_aabb[1] - self.root_aabb[0])).astype(
             np.float32)
@@ -763,16 +790,18 @@ class _Convert:
                     xyz.copy(),
                     rgb)
 
-        pnts_writer.node_to_pnts(''.encode('ascii'), root_node, self.out_folder, self.rgb)
+        pnts_writer.node_to_pnts(b'', root_node, self.out_folder, self.rgb)
 
         executor = concurrent.futures.ProcessPoolExecutor()
-        root_tileset = Node.to_tileset(executor, ''.encode('ascii'), self.root_aabb, self.root_spacing,
-                                       self.out_folder, self.root_scale)
+        root_tileset = Node.to_tileset(executor, b'', self.root_aabb, self.root_spacing,
+                                       self.out_folder, self.root_scale, prune=False)
         executor.shutdown()
 
         root_tileset['transform'] = transform.T.reshape(16).tolist()
-        root_tileset['refine'] = 'REPLACE'
+        root_tileset['refine'] = 'REPLACE'  # The root tile is in the "REPLACE" refine mode
         if "children" in root_tileset:
+            # And children with the "ADD" refine mode
+            # No need to set this property in their children, they will take the parent value if it is not present
             for child in root_tileset['children']:
                 child['refine'] = 'ADD'  # type: ignore
 
@@ -791,12 +820,12 @@ class _Convert:
 
     def print_summary(self):
         print('Summary:')
-        print('  - points to process: {}'.format(self.infos['point_count']))
-        print('  - offset to use: {}'.format(self.avg_min))
-        print('  - root spacing: {}'.format(self.root_spacing / self.root_scale[0]))
-        print('  - root aabb: {}'.format(self.root_aabb))
-        print('  - original aabb: {}'.format(self.original_aabb))
-        print('  - scale: {}'.format(self.root_scale))
+        print('  - points to process: {}'.format(self.file_info['point_count']))
+        print(f'  - offset to use: {self.avg_min}')
+        print(f'  - root spacing: {self.root_spacing / self.root_scale[0]}')
+        print(f'  - root aabb: {self.root_aabb}')
+        print(f'  - original aabb: {self.original_aabb}')
+        print(f'  - scale: {self.root_scale}')
 
     def draw_graph(self):
         import pygal  # type: ignore
@@ -858,16 +887,16 @@ class _Convert:
 
         if self.verbose >= 1:
             print('{} % points in {} sec [{} tasks, {} nodes, {} wip]'.format(
-                round(100 * self.state.processed_points / self.infos['point_count'], 2),
+                round(100 * self.state.processed_points / self.file_info['point_count'], 2),
                 round(now, 1),
                 self.jobs - len(self.zmq_manager.idle_clients),
                 len(self.state.processing_nodes),
                 self.state.points_in_progress))
 
         elif self.verbose >= 0:
-            percent = round(100 * self.state.processed_points / self.infos['point_count'], 2)
+            percent = round(100 * self.state.processed_points / self.file_info['point_count'], 2)
             time_left = (100 - percent) * now / (percent + 0.001)
-            print('\r{:>6} % in {} sec [est. time left: {} sec]'.format(percent, round(now), round(time_left)), end='',
+            print(f'\r{percent:>6} % in {round(now)} sec [est. time left: {round(time_left)} sec]', end='',
                   flush=True)
 
 
@@ -930,8 +959,8 @@ def main(args):
                        overwrite=args.overwrite,
                        jobs=args.jobs,
                        cache_size=args.cache_size,
-                       srs_out=args.srs_out,
-                       srs_in=args.srs_in,
+                       crs_out=str_to_CRS(args.srs_out),
+                       crs_in=str_to_CRS(args.srs_in),
                        fraction=args.fraction,
                        benchmark=args.benchmark,
                        rgb=not args.no_rgb,
