@@ -8,7 +8,7 @@ from py3dtiles.tileset.tile_content import TileContent, TileContentBody, TileCon
 from .gltf import GlTF
 
 # 1008 - Lauren - importing FeatureTable
-from .feature_table import FeatureTable
+from py3dtiles.tileset.feature_table import FeatureTable
 
 
 class B3dm(TileContent):
