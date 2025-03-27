@@ -3,12 +3,18 @@ stages:
   - 🤞 test
   - 🚀 deploy
 
+default:
+    tags:
+        - saas-linux-large-amd64
+
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
+  GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
 
 .pre-commit-check:
   image:
-    name: python:3.10
+    name: python:3.9
   variables:
     PRE_COMMIT_HOME: ${CI_PROJECT_DIR}/.cache/pre-commit
   cache:
@@ -24,17 +30,44 @@ variables:
       - merge_requests
       - develop
       - tags
-      - master
+      - main
 
 # -- LINT JOBS --------------------------------------------------------------------------
 flake8:
   extends: .pre-commit-check
+  image:
+    name: python:3.9
   stage: 🐍 lint
   script:
     - pre-commit run --show-diff-on-failure --all-files flake8
   only:
     changes:
       - "**/*.py"
+      - pyproject.toml
+      - setup.cfg
+      - .pre-commit-config.yaml
+
+isort:
+  extends: .pre-commit-check
+  stage: 🐍 lint
+  script:
+    - pre-commit run --show-diff-on-failure --all-files isort
+  only:
+    changes:
+      - "**/*.py"
+      - pyproject.toml
+      - .pre-commit-config.yaml
+
+black:
+  extends: .pre-commit-check
+  stage: 🐍 lint
+  script:
+    - pre-commit run --show-diff-on-failure --all-files black
+  only:
+    changes:
+      - "**/*.py"
+      - pyproject.toml
+      - .pre-commit-config.yaml
 
 autoflake:
   extends: .pre-commit-check
@@ -43,6 +76,8 @@ autoflake:
   only:
     changes:
       - "**/*.py"
+      - pyproject.toml
+      - .pre-commit-config.yaml
 
 pyupgrade:
   extends: .pre-commit-check
@@ -51,6 +86,8 @@ pyupgrade:
   only:
     changes:
       - "**/*.py"
+      - pyproject.toml
+      - .pre-commit-config.yaml
 
 pre-commit-built-in:
   extends: .pre-commit-check
@@ -60,33 +97,36 @@ pre-commit-built-in:
     - pre-commit run --show-diff-on-failure --all-files end-of-file-fixer
     - pre-commit run --show-diff-on-failure --all-files check-added-large-files
 
-pytype:
+typing-check:
   stage: 🐍 lint
   image:
-    name: python:3.10-slim
+    # this should always be the oldest python we support
+    name: python:3.9-slim
   cache:
     - key: $CI_COMMIT_REF_NAME
       paths:
-        - .pytype/
+        - .mypy_cache/
     - paths:
       - ${PIP_CACHE_DIR}
   before_script:
     - pip install .[dev]
   script:
-    - pytype setup.py py3dtiles/ docs/ tests/
+    - mypy
   only:
     refs:
       - merge_requests
       - develop
       - tags
-      - master
+      - main
     changes:
       - "**/*.py"
+      - pyproject.toml
+      - .pre-commit-config.yaml
 
 lint-commit:
   stage: 🐍 lint
   image:
-    name: python:3.10
+    name: python:3.9
   cache:
     - paths:
       - ${PIP_CACHE_DIR}
@@ -97,6 +137,8 @@ lint-commit:
   only:
     refs:
       - merge_requests
+      - pyproject.toml
+      - .pre-commit-config.yaml
 
 # -- TEST JOBS --------------------------------------------------------------------------
 test:
@@ -107,10 +149,9 @@ test:
     - paths:
       - ${PIP_CACHE_DIR}
   before_script:
-    - apt update
-    - apt install -y pdal llvm
+    - pip install -U pip setuptools
+    - pip install .[postgres,ply,las,dev]
   script:
-    - pip install .[dev]
     - pytest
     # TODO move that in unit tests
     - py3dtiles info tests/fixtures/pointCloudRGB.pnts
@@ -129,17 +170,68 @@ test:
       - merge_requests
       - develop
       - tags
-      - master
+      - main
     changes:
       - "**/*.py"
+      - pyproject.toml
   parallel:
     matrix:
-      - PYTHON_VERSION: ['3.8', '3.9', '3.10']
+      - PYTHON_VERSION: ['3.9', '3.10', '3.11', '3.12', '3.13']
+
+test-docker-build:
+  stage: 🤞 test
+  image: docker:24.0.7
+  services:
+    - name: docker:24.0.7-dind
+      alias: docker
+  script:
+    - docker build . -t docker-test -f docker/Dockerfile
+    - mkdir data
+    - cp tests/fixtures/simple.ply data
+    # Sanity check: convert then check if there is the right amount of points in the tileset
+    - docker run --rm
+        --mount type=bind,source="$(pwd)"/data,target=/data/
+        --volume /etc/passwd:/etc/passwd:ro --volume /etc/group:/etc/group:ro --user $(id -u):$(id -g)
+        docker-test convert simple.ply
+    - docker run
+        --rm
+        --mount type=bind,source="$(pwd)"/data,target=/data/
+        --entrypoint=python3
+        docker-test
+        -c "from py3dtiles.tileset.utils import number_of_points_in_tileset;from pathlib import Path;exit(number_of_points_in_tileset(Path('3dtiles/tileset.json')) != 22300);"
+  only:
+    refs:
+      - merge_requests
+      - main
+    changes:
+      # did we changed the dependencies?
+      - pyproject.toml
+      # other changes *should* get covered by the rest of the CI
+      # we do want to validate docker/requirements.txt for instance
+      - "docker/**/*"
+
+windows-test:
+  stage: 🤞 test
+  tags:
+    -  saas-windows-medium-amd64
+  before_script:
+    - Import-Module "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
+    - choco install -y python --version=3.9.5
+    - RefreshEnv
+    - python -m pip install --upgrade pip setuptools wheel
+    - python -m pip install .[postgres,ply,las,dev]
+  script:
+    - pytest
+    - py3dtiles info tests/fixtures/pointCloudRGB.pnts
+  only:
+    refs:
+      - tags
+      - main
 
 3d-tiles-validator:
   stage: 🤞 test
   image:
-    name: node:18
+    name: node:18-bullseye
   cache:
     - key: 3d-tiles-validator
       paths:
@@ -148,8 +240,9 @@ test:
       - ${PIP_CACHE_DIR}
   before_script:
     - apt update
-    - apt install -y python3-pip pdal llvm liblaszip8
-    - pip install .
+    - apt install -y python3-pip liblaszip8
+    - pip install -U pip setuptools
+    - pip install .[las]
     - pip install laspy[laszip]
     - wget -nv -N -P laz https://download.data.grandlyon.com/files/grandlyon/imagerie/mnt2018/lidar/laz/1843_5175.laz
     - wget -nv -N -P laz https://download.data.grandlyon.com/files/grandlyon/imagerie/mnt2018/lidar/laz/1845_5173.laz
@@ -161,36 +254,67 @@ test:
     # Convert the 2 las files
     - py3dtiles convert ../laz/1843_5175.laz --out tilesets/1
     - py3dtiles convert ../laz/1845_5173.laz --out tilesets/2
-    # Validate the first one
-    - npx ts-node src/main.ts --tilesetsDirectory tilesets/1 | tee validator-output.txt
-    - grep \"numErrors\"\:\ 0 validator-output.txt | wc -l | grep 4
-    - grep \"numWarnings\"\:\ 0 validator-output.txt | wc -l | grep 4
-    # Validate the second one to be sure the 2 las are valid
-    - npx ts-node src/main.ts --tilesetsDirectory tilesets/2 | tee validator-output.txt
-    - grep \"numErrors\"\:\ 0 validator-output.txt | wc -l | grep 1
-    - grep \"numWarnings\"\:\ 0 validator-output.txt | wc -l | grep 1
-    # Merge the 2 tilesets and validate the result
-    - py3dtiles merge tilesets
-    - npx ts-node src/main.ts --tilesetsDirectory tilesets | tee validator-output.txt
-    - grep \"numErrors\"\:\ 0 validator-output.txt | wc -l | grep 6
-    - grep \"numWarnings\"\:\ 0 validator-output.txt | wc -l | grep 6
+    # merge them
+    - py3dtiles merge tilesets/1/tileset.json tilesets/2/tileset.json --output-tileset tilesets/tileset.json
+    # Validate all the tilesets
+    - npx ts-node src/main.ts --writeReports --tilesetsDirectory tilesets
+    # no errors
+    - |
+      for file in $(find ~/workspace/py3dtiles_clean/tilesets -name "tileset*\.report\.json"); do
+        echo "Report for $file:"
+        cat "$file"
+        [ $(jq '.numErrors' "$file") = '0' ]
+      done
+    # no warnings
+    - |
+      for file in $(find ~/workspace/py3dtiles_clean/tilesets -name "tileset*\.report\.json"); do
+        [ $(jq '.numWarnings' "$file") = '0' ]
+      done
+  # we depend on external data that are not always available
+  allow_failure: true
   only:
     refs:
       - merge_requests
       - develop
       - tags
-      - master
+      - main
     changes:
       - "**/*.py"
+      - pyproject.toml
+
+test-cli:
+  stage: 🤞 test
+  image:
+    name: python:3.9-slim
+  cache:
+    - paths:
+      - ${PIP_CACHE_DIR}
+  before_script:
+    - pip install .
+  script:
+    # this is very useful to test if the optional imports are correctly guarded for instance
+    - py3dtiles --help
+    # should complete without errors, as there are only python deps
+    - py3dtiles convert --out test1 ./tests/fixtures/simple.xyz
+    # las
+    - pip install .[las]
+    - py3dtiles convert --out test2 ./tests/fixtures/with_srs_3857.las
+    # ply
+    - pip install .[ply]
+    - py3dtiles convert --out test3 ./tests/fixtures/simple.ply
+  only:
+    refs:
+      - merge_requests
+      - develop
+      - tags
+      - main
 
 sonarcloud-check:
   stage: 🤞 test
   needs: [test]
   image:
     name: sonarsource/sonar-scanner-cli:latest
-  variables:
-    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
-    GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
+    entrypoint: [""]
   cache:
     key: "${CI_JOB_NAME}"
     paths:
@@ -201,26 +325,95 @@ sonarcloud-check:
     refs:
       - merge_requests
       - develop
-      - tags
-      - master
+      - main
     changes:
       - "**/*.py"
+      - sonar-project.properties
 
 # -- DEPLOY JOBS -------------------------------------------------------------------------
+docker-build:
+  stage: 🚀 deploy
+  image: docker:24.0.7
+  services:
+    - name: docker:24.0.7-dind
+      alias: docker
+  variables:
+    IMAGE_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
+  script:
+    - docker build . -t $IMAGE_TAG -t py3dtiles/py3dtiles:$CI_COMMIT_TAG -f docker/Dockerfile
+    - mkdir data
+    - cp tests/fixtures/simple.ply data
+    # Sanity check: convert then check if there is the right amount of points in the tileset
+    - docker run --rm
+        --mount type=bind,source="$(pwd)"/data,target=/data/
+        --volume /etc/passwd:/etc/passwd:ro --volume /etc/group:/etc/group:ro --user $(id -u):$(id -g)
+        $IMAGE_TAG convert simple.ply
+    - docker run
+        --rm
+        --mount type=bind,source="$(pwd)"/data,target=/data/
+        --entrypoint=python3
+        $IMAGE_TAG
+        -c "from py3dtiles.tileset.utils import number_of_points_in_tileset;from pathlib import Path;exit(number_of_points_in_tileset(Path('3dtiles/tileset.json')) != 22300);"
+    # push the image
+    # gitlab registry
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker push $IMAGE_TAG
+    # docker hub
+    - docker login -u py3dtilesteam -p $DOCKER_HUB_PASSWORD
+    - docker push py3dtiles/py3dtiles:$CI_COMMIT_TAG
+  only:
+    refs:
+      - tags
+  environment:
+    name: docker
+    url: https://hub.docker.com/r/py3dtiles/py3dtiles
+
 pages:
   stage: 🚀 deploy
-  image: python:3.10
+  image: python:3.9
   script:
     - pip install .[doc]
     # sphinx-multiversion needs to have all the branches
     - git fetch
-    - sphinx-multiversion docs public
-    - cp -rv docs/index_redirect.html public/index.html
-    - current_version="$(git tag --list | tail -n1)"
-    - sed -i "s/VERSION/$current_version/g" public/index.html
+    - make -C docs BUILDDIR="../public" site
   artifacts:
     paths:
       - public
   only:
-    - master
+    - main
     - tags
+  environment:
+    name: pages
+    url: https://py3dtiles.org
+
+# see https://docs.pypi.org/trusted-publishers/
+publish-to-pypi:
+  stage: 🚀 deploy
+  image: python:3.9
+  id_tokens:
+    PYPI_ID_TOKEN:
+      # Use "pypi" if uploading to PyPI directly
+      # We'll do it later when we'll have validated it works correctly
+      aud: pypi
+  script:
+    # Install dependencies
+    - apt update && apt install -y jq
+    - python -m pip install -e .[pack]
+    - python -m pip install -U id
+
+    # Retrieve the OIDC token from GitLab CI/CD, and exchange it for a PyPI API token
+    - oidc_token=$(python -m id PYPI)
+    # Replace "https://pypi.org/*" with "https://test.pypi.org/*" if uploading to TestPyPI
+    - resp=$(curl -X POST https://pypi.org/_/oidc/mint-token -d "{\"token\":\"${oidc_token}\"}")
+    - api_token=$(jq --raw-output '.token' <<< "${resp}")
+
+    # Upload to PyPI authenticating via the newly-minted token
+    # Add "--repository testpypi" if uploading to TestPyPI
+    - python -m build
+    - twine check dist/py3dtiles-*
+    - twine upload -u __token__ -p "${api_token}" dist/*
+  only:
+    - tags
+  environment:
+    name: release
+    url: https://pypi.org/project/py3dtiles/
