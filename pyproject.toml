@@ -1,0 +1,39 @@
+[project]
+name = "pdg-3dtiles"
+version = "0.1.0"
+description = "PDG tooling using upstream py3dtiles"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "py3dtiles>=12.1.0",
+  "pyproj>=3.5",
+  "numpy>=1.23",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7",
+  "ruff>=0.4",
+  "mypy>=1.8",
+]
+
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["py3dtiles"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/py3dtiles",
+  "/tests",
+  "/README.md",
+  "/pyproject.toml",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
